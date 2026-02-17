@@ -82,41 +82,53 @@ class ApiClient {
 
   // Auth
   async signup(email: string, password: string, displayName: string) {
-    const encryptedPassword = await encryptPassword(password);
+    let body: Record<string, string>;
+    try {
+      const encryptedPassword = await encryptPassword(password);
+      body = { email, encryptedPassword, displayName };
+    } catch (err: any) {
+      if (err.message === 'ENCRYPTION_UNAVAILABLE') {
+        body = { email, password, displayName };
+      } else {
+        if (err.message?.includes('decrypt')) clearPublicKeyCache();
+        throw err;
+      }
+    }
     try {
       const data = await this.request<{ token: string; host: any }>(
         '/auth/host/signup',
-        {
-          method: 'POST',
-          body: JSON.stringify({ email, encryptedPassword, displayName }),
-        }
+        { method: 'POST', body: JSON.stringify(body) }
       );
       this.setHostToken(data.token);
       return data;
     } catch (err: any) {
-      if (err.message?.includes('decrypt')) {
-        clearPublicKeyCache();
-      }
+      if (err.message?.includes('decrypt')) clearPublicKeyCache();
       throw err;
     }
   }
 
   async login(email: string, password: string) {
-    const encryptedPassword = await encryptPassword(password);
+    let body: Record<string, string>;
+    try {
+      const encryptedPassword = await encryptPassword(password);
+      body = { email, encryptedPassword };
+    } catch (err: any) {
+      if (err.message === 'ENCRYPTION_UNAVAILABLE') {
+        body = { email, password };
+      } else {
+        if (err.message?.includes('decrypt')) clearPublicKeyCache();
+        throw err;
+      }
+    }
     try {
       const data = await this.request<{ token: string; host: any }>(
         '/auth/host/login',
-        {
-          method: 'POST',
-          body: JSON.stringify({ email, encryptedPassword }),
-        }
+        { method: 'POST', body: JSON.stringify(body) }
       );
       this.setHostToken(data.token);
       return data;
     } catch (err: any) {
-      if (err.message?.includes('decrypt')) {
-        clearPublicKeyCache();
-      }
+      if (err.message?.includes('decrypt')) clearPublicKeyCache();
       throw err;
     }
   }

@@ -12,14 +12,16 @@ const router = Router();
 
 const signupSchema = z.object({
   email: z.string().email(),
-  encryptedPassword: z.string().min(1, 'Encrypted password is required'),
+  encryptedPassword: z.string().min(1).optional(),
+  password: z.string().min(1).optional(),
   displayName: z.string().min(1).max(100),
-});
+}).refine((d) => d.encryptedPassword ?? d.password, { message: 'Password is required', path: ['password'] });
 
 const loginSchema = z.object({
   email: z.string().email(),
-  encryptedPassword: z.string().min(1, 'Encrypted password is required'),
-});
+  encryptedPassword: z.string().min(1).optional(),
+  password: z.string().min(1).optional(),
+}).refine((d) => d.encryptedPassword ?? d.password, { message: 'Password is required', path: ['password'] });
 
 // GET /v1/auth/public-key — returns the RSA public key for client-side encryption
 router.get('/public-key', (_req: Request, res: Response) => {
@@ -32,10 +34,14 @@ router.post('/host/signup', authLimiter, asyncHandler(async (req: Request, res: 
   const body = signupSchema.parse(req.body);
 
   let password: string;
-  try {
-    password = decryptPassword(body.encryptedPassword);
-  } catch {
-    throw new AppError('Failed to decrypt password. Please refresh and try again.', 400);
+  if (body.encryptedPassword) {
+    try {
+      password = decryptPassword(body.encryptedPassword);
+    } catch {
+      throw new AppError('Failed to decrypt password. Please refresh and try again.', 400);
+    }
+  } else {
+    password = body.password!;
   }
 
   if (password.length < 8) {
@@ -75,10 +81,14 @@ router.post('/host/login', authLimiter, asyncHandler(async (req: Request, res: R
   const body = loginSchema.parse(req.body);
 
   let password: string;
-  try {
-    password = decryptPassword(body.encryptedPassword);
-  } catch {
-    throw new AppError('Failed to decrypt password. Please refresh and try again.', 400);
+  if (body.encryptedPassword) {
+    try {
+      password = decryptPassword(body.encryptedPassword);
+    } catch {
+      throw new AppError('Failed to decrypt password. Please refresh and try again.', 400);
+    }
+  } else {
+    password = body.password!;
   }
 
   const host = await prisma.host.findUnique({ where: { email: body.email } });

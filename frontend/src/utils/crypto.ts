@@ -2,11 +2,20 @@ const API_BASE = '/v1';
 
 let _publicKey: CryptoKey | null = null;
 
+/** Web Crypto subtle is only available in secure contexts (HTTPS or localhost). */
+export function isEncryptionAvailable(): boolean {
+  return typeof window !== 'undefined' && !!window.crypto?.subtle;
+}
+
 /**
  * Fetch the server's RSA public key and import it for use with Web Crypto API.
  * The key is cached in memory so subsequent calls reuse it.
+ * Throws if crypto.subtle is unavailable (HTTP / non-secure context).
  */
 async function getPublicKey(): Promise<CryptoKey> {
+  if (!isEncryptionAvailable()) {
+    throw new Error('ENCRYPTION_UNAVAILABLE');
+  }
   if (_publicKey) return _publicKey;
 
   // Retry once if the first fetch fails (e.g. temporary rate-limit or network blip)
@@ -56,8 +65,12 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
 /**
  * Encrypt a plaintext password using the server's RSA public key.
  * Returns a base64-encoded ciphertext string.
+ * Throws "ENCRYPTION_UNAVAILABLE" when crypto.subtle is unavailable (HTTP).
  */
 export async function encryptPassword(password: string): Promise<string> {
+  if (!isEncryptionAvailable()) {
+    throw new Error('ENCRYPTION_UNAVAILABLE');
+  }
   const key = await getPublicKey();
   const encoded = new TextEncoder().encode(password);
   const encrypted = await window.crypto.subtle.encrypt(
