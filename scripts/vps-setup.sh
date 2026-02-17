@@ -9,7 +9,7 @@ set -euo pipefail
 #  Usage:  ssh root@your-server 'bash -s' < scripts/vps-setup.sh
 # ═══════════════════════════════════════════════════════
 
-REPO_URL="${1:?Usage: $0 <github-repo-url>}"
+REPO_URL="${1:-}"
 APP_DIR="${2:-/home/deploy/backshots}"
 DEPLOY_USER="deploy"
 
@@ -43,11 +43,23 @@ ufw allow 443/tcp
 ufw --force enable
 
 echo "── 5. Clone repository ───────────────────────────"
-sudo -u "$DEPLOY_USER" bash -c "
-  if [ ! -d '$APP_DIR' ]; then
-    git clone '$REPO_URL' '$APP_DIR'
+if [ -d "$APP_DIR/.git" ]; then
+  echo "Repo already exists at $APP_DIR, skipping clone."
+else
+  read -rp "Clone the repo now? (y/n): " CLONE_ANSWER
+  if [[ "$CLONE_ANSWER" =~ ^[Yy]$ ]]; then
+    if [ -z "$REPO_URL" ]; then
+      read -rp "Enter the GitHub repo URL: " REPO_URL
+    fi
+    sudo -u "$DEPLOY_USER" bash -c "git clone '$REPO_URL' '$APP_DIR'"
+  else
+    if [ ! -d "$APP_DIR" ]; then
+      echo "WARNING: $APP_DIR does not exist. Make sure you clone or copy the repo there before deploying."
+    else
+      echo "Skipping clone. Using existing directory at $APP_DIR"
+    fi
   fi
-"
+fi
 
 echo "── 6. Create production env file ─────────────────"
 ENV_FILE="$APP_DIR/.env.production"
