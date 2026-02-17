@@ -205,6 +205,8 @@ ssh-copy-id -i deploy_key.pub deploy@your-server
 cat deploy_key
 ```
 
+**VPS_SSH_KEY tips:** Paste the *entire* private key including the `-----BEGIN ... KEY-----` and `-----END ... KEY-----` lines. No extra spaces. If you see "ssh: no key found" in CI, re-create the secret and ensure newlines are preserved.
+
 ### Manual deploy (without CI)
 
 SSH into your server and run:
