@@ -25,7 +25,7 @@ describe('Events API', () => {
     hostToken = res.body.token;
     await prisma.host.update({
       where: { id: res.body.host.id },
-      data: { canCreateEvents: true },
+      data: { canCreateEvents: true, plan: 'starter' },
     });
   });
 

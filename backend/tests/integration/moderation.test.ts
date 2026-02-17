@@ -25,7 +25,7 @@ describe('Moderation API', () => {
     hostToken = hostRes.body.token;
     await prisma.host.update({
       where: { id: hostRes.body.host.id },
-      data: { canCreateEvents: true },
+      data: { canCreateEvents: true, plan: 'starter' },
     });
 
     // Create event
