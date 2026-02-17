@@ -128,11 +128,11 @@ export function authenticateAny(req: Request, res: Response, next: NextFunction)
 export function generateHostToken(hostId: string, email: string): string {
   return jwt.sign({ hostId, email, type: 'host' } as HostPayload, config.jwtSecret, {
     expiresIn: config.jwtExpiresIn,
-  });
+  } as jwt.SignOptions);
 }
 
 export function generateGuestToken(sessionId: string, eventId: string): string {
   return jwt.sign({ sessionId, eventId, type: 'guest' } as GuestPayload, config.jwtSecret, {
     expiresIn: config.guestTokenExpiresIn,
-  });
+  } as jwt.SignOptions);
 }
