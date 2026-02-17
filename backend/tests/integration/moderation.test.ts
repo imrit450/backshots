@@ -14,7 +14,7 @@ describe('Moderation API', () => {
     await prisma.event.deleteMany();
     await prisma.host.deleteMany();
 
-    // Create host
+    // Create host and grant event creation (tests bypass admin approval)
     const hostRes = await request(app)
       .post('/v1/auth/host/signup')
       .send({
@@ -23,6 +23,10 @@ describe('Moderation API', () => {
         displayName: 'Mod Host',
       });
     hostToken = hostRes.body.token;
+    await prisma.host.update({
+      where: { id: hostRes.body.host.id },
+      data: { canCreateEvents: true },
+    });
 
     // Create event
     const eventRes = await request(app)
