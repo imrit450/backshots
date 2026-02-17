@@ -3,17 +3,22 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci
+# Copy root workspace files + frontend package
+COPY package.json package-lock.json ./
+COPY frontend/package.json ./frontend/
 
-COPY . .
-RUN npm run build
+# Install only frontend workspace deps
+RUN npm ci --workspace=frontend --include-workspace-root
+
+# Copy source and build
+COPY frontend/ ./frontend/
+RUN npm run build --workspace=frontend
 
 # ── Stage 2: Serve with nginx ────────────────────
 FROM nginx:alpine AS runner
 
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/frontend/dist /usr/share/nginx/html
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 

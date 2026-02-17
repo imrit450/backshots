@@ -3,15 +3,21 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts
+# Copy root workspace files + backend package
+COPY package.json package-lock.json ./
+COPY backend/package.json ./backend/
 
-COPY prisma ./prisma/
-RUN npx prisma generate
+# Install only backend workspace deps
+RUN npm ci --workspace=backend --include-workspace-root
 
-COPY tsconfig.json ./
-COPY src ./src/
-RUN npm run build
+# Generate Prisma client
+COPY backend/prisma ./backend/prisma/
+RUN npx prisma generate --schema=backend/prisma/schema.prisma
+
+# Build TypeScript
+COPY backend/tsconfig.json ./backend/
+COPY backend/src ./backend/src/
+RUN npm run build --workspace=backend
 
 # ── Stage 2: Production ──────────────────────────
 FROM node:20-alpine AS runner
@@ -20,14 +26,16 @@ RUN apk add --no-cache openssl
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --ignore-scripts
+COPY package.json package-lock.json ./
+COPY backend/package.json ./backend/
 
-COPY prisma ./prisma/
-RUN npx prisma generate
+RUN npm ci --workspace=backend --include-workspace-root --omit=dev
 
-COPY --from=builder /app/dist ./dist/
-COPY scripts ./scripts/
+COPY backend/prisma ./backend/prisma/
+RUN npx prisma generate --schema=backend/prisma/schema.prisma
+
+COPY --from=builder /app/backend/dist ./backend/dist/
+COPY backend/scripts ./backend/scripts/
 
 RUN mkdir -p /app/uploads/originals /app/uploads/thumbnails /app/uploads/large /app/exports
 
@@ -36,4 +44,5 @@ ENV PORT=3001
 
 EXPOSE 3001
 
+WORKDIR /app/backend
 CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/index.js"]
