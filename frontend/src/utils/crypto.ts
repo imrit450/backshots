@@ -21,17 +21,34 @@ async function getPublicKey(): Promise<CryptoKey> {
   // Retry once if the first fetch fails (e.g. temporary rate-limit or network blip)
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/auth/public-key`);
-  } catch {
+    res = await fetch(`${API_BASE}/auth/public-key`, { credentials: 'same-origin' });
+  } catch (e) {
     await new Promise((r) => setTimeout(r, 1000));
-    res = await fetch(`${API_BASE}/auth/public-key`);
+    res = await fetch(`${API_BASE}/auth/public-key`, { credentials: 'same-origin' });
   }
 
   if (!res.ok) {
-    throw new Error('Failed to fetch encryption key. Please refresh the page and try again.');
+    const text = await res.text();
+    let detail = '';
+    try {
+      const json = JSON.parse(text);
+      detail = json.error ? ` (${json.error})` : '';
+    } catch {
+      detail = text ? ` (${text.slice(0, 80)})` : '';
+    }
+    throw new Error(`Failed to fetch encryption key${detail}. Please refresh and try again.`);
   }
 
-  const { publicKey: pem } = await res.json();
+  let pem: string;
+  try {
+    const data = await res.json();
+    pem = data.publicKey;
+    if (!pem || typeof pem !== 'string') {
+      throw new Error('Invalid key response');
+    }
+  } catch (e) {
+    throw new Error('Failed to fetch encryption key. Invalid server response.');
+  }
 
   const binaryDer = pemToArrayBuffer(pem);
 

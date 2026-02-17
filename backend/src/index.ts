@@ -22,9 +22,34 @@ const app = express();
 // Trust proxy (ngrok, reverse proxies set X-Forwarded-For)
 app.set('trust proxy', 1);
 
-// Middleware
+// CORS: allow frontend origin and common variants
+function corsOrigin(origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) {
+  const allowed = [
+    config.frontendUrl,
+    config.baseUrl,
+    'http://localhost:5173',
+    'http://localhost:3001',
+  ];
+  // Add http/https flip of configured URLs
+  for (const u of [config.frontendUrl, config.baseUrl]) {
+    if (u.startsWith('https://')) allowed.push(u.replace('https://', 'http://'));
+    if (u.startsWith('http://')) allowed.push(u.replace('http://', 'https://'));
+  }
+  if (!origin) return cb(null, true); // same-origin or non-browser
+  if (allowed.some((a) => origin === a || origin === a.replace(/\/$/, ''))) return cb(null, true);
+  // Allow if origin host matches our frontend host
+  try {
+    const o = new URL(origin);
+    const f = new URL(config.frontendUrl);
+    if (o.hostname === f.hostname) return cb(null, true);
+  } catch {
+    /* ignore */
+  }
+  cb(null, false);
+}
+
 app.use(cors({
-  origin: [config.frontendUrl, 'http://localhost:5173', 'http://localhost:3001'],
+  origin: corsOrigin,
   credentials: true,
 }));
 app.use(express.json());
