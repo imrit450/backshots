@@ -238,6 +238,27 @@ Your `.env` should have:
 DATABASE_URL="postgresql://backshots:backshots_dev@localhost:5432/backshots?schema=public"
 ```
 
-### Adding SSL (HTTPS)
+### Adding SSL (HTTPS) with Let's Encrypt
 
-For production SSL, the recommended approach is to put Cloudflare in front of your domain (free) or add Certbot/Let's Encrypt. A Certbot integration guide will be added separately.
+1. **Point your domain to the VPS** — Add an A record: `backshots.zilware.mu` → your server IP.
+
+2. **Ensure the app is running** — `docker compose -f docker-compose.prod.yml up -d`
+
+3. **Run the SSL init script** on the VPS:
+   ```bash
+   cd ~/backshots
+   bash scripts/init-ssl.sh backshots.zilware.mu
+   ```
+
+4. **Update `.env.production`** with your HTTPS URLs:
+   ```
+   FRONTEND_URL=https://backshots.zilware.mu
+   BASE_URL=https://backshots.zilware.mu
+   ```
+
+5. **Restart the backend** so it uses the new URLs:
+   ```bash
+   docker compose -f docker-compose.prod.yml restart backend
+   ```
+
+Certificates auto-renew every 12 hours via the certbot container.

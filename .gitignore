@@ -18,3 +18,10 @@ coverage/
 
 # Docker data volumes
 pgdata/
+
+# Let's Encrypt certs (generated on server)
+certbot/
+
+# SSH deploy key (never commit)
+deploy_key
+deploy_key.pub
