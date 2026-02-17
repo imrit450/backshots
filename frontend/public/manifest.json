@@ -1,0 +1,17 @@
+{
+  "name": "Backshots",
+  "short_name": "Backshots",
+  "description": "Capture and share event photos instantly",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#d946ef",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

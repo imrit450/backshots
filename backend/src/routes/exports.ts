@@ -1,0 +1,182 @@
+import { Router, Request, Response } from 'express';
+import { asyncHandler } from '../utils/asyncHandler';
+import { prisma } from '../index';
+import { authenticateHost } from '../middleware/auth';
+import { AppError } from '../middleware/errorHandler';
+import { eventWhereForHost } from '../utils/helpers';
+import archiver from 'archiver';
+import fs from 'fs';
+import path from 'path';
+import { config } from '../config';
+import { getStorage } from '../services/storage';
+
+const router = Router();
+
+// POST /v1/events/:eventId/exports - Host generates ZIP export (owner or admin)
+router.post('/:eventId/exports', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+  const event = await prisma.event.findFirst({ where });
+
+  if (!event) {
+    throw new AppError('Event not found', 404);
+  }
+
+  // Get approved, non-hidden photos
+  const photos = await prisma.photo.findMany({
+    where: {
+      eventId: event.id,
+      status: 'APPROVED',
+      hidden: false,
+    },
+    include: {
+      guestSession: { select: { displayName: true } },
+    },
+  });
+
+  if (photos.length === 0) {
+    throw new AppError('No photos to export', 400);
+  }
+
+  // Create export record
+  const exportRecord = await prisma.export.create({
+    data: {
+      eventId: event.id,
+      status: 'PROCESSING',
+      photoCount: photos.length,
+    },
+  });
+
+  // Generate ZIP asynchronously
+  const zipFilename = `${event.eventCode}_${exportRecord.id}.zip`;
+  const zipPath = path.join(config.exportDir, zipFilename);
+
+  // Start async ZIP generation
+  generateZip(zipPath, photos, exportRecord.id, event.title).catch(console.error);
+
+  res.status(202).json({
+    export: {
+      id: exportRecord.id,
+      status: 'PROCESSING',
+      photoCount: photos.length,
+    },
+  });
+}));
+
+// GET /v1/events/:eventId/exports/:exportId - Host checks export status
+router.get(
+  '/:eventId/exports/:exportId',
+  authenticateHost,
+  asyncHandler(async (req: Request, res: Response) => {
+    const expWhere = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+    const event = await prisma.event.findFirst({ where: expWhere });
+
+    if (!event) {
+      throw new AppError('Event not found', 404);
+    }
+
+    const exportRecord = await prisma.export.findFirst({
+      where: { id: req.params.exportId, eventId: event.id },
+    });
+
+    if (!exportRecord) {
+      throw new AppError('Export not found', 404);
+    }
+
+    res.json({
+      export: {
+        id: exportRecord.id,
+        status: exportRecord.status,
+        photoCount: exportRecord.photoCount,
+        fileUrl: exportRecord.fileUrl,
+        createdAt: exportRecord.createdAt.toISOString(),
+        completedAt: exportRecord.completedAt?.toISOString() || null,
+      },
+    });
+  })
+);
+
+// GET /v1/events/:eventId/exports - Host lists exports (owner or admin)
+router.get('/:eventId/exports', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const listWhere = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+  const event = await prisma.event.findFirst({ where: listWhere });
+
+  if (!event) {
+    throw new AppError('Event not found', 404);
+  }
+
+  const exports = await prisma.export.findMany({
+    where: { eventId: event.id },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  res.json({
+    exports: exports.map((e) => ({
+      id: e.id,
+      status: e.status,
+      photoCount: e.photoCount,
+      fileUrl: e.fileUrl,
+      createdAt: e.createdAt.toISOString(),
+      completedAt: e.completedAt?.toISOString() || null,
+    })),
+  });
+}));
+
+async function generateZip(
+  zipPath: string,
+  photos: any[],
+  exportId: string,
+  eventTitle: string
+): Promise<void> {
+  try {
+    await fs.promises.mkdir(path.dirname(zipPath), { recursive: true });
+
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    const storage = getStorage();
+
+    archive.pipe(output);
+
+    let index = 1;
+    for (const photo of photos) {
+      const guestName = photo.guestSession.displayName || 'anonymous';
+      if (photo.largeUrl) {
+        try {
+          const stream = await storage.getStream(photo.largeUrl);
+          const ext = path.extname(photo.largeUrl) || '.avif';
+          archive.append(stream, {
+            name: `${eventTitle}/${guestName}_${String(index).padStart(4, '0')}${ext}`,
+          });
+          index++;
+        } catch {
+          // File doesn't exist or inaccessible, skip
+        }
+      }
+    }
+
+    await archive.finalize();
+
+    await new Promise<void>((resolve, reject) => {
+      output.on('close', resolve);
+      output.on('error', reject);
+    });
+
+    const zipUrl = `/exports/${path.basename(zipPath)}`;
+
+    await prisma.export.update({
+      where: { id: exportId },
+      data: {
+        status: 'COMPLETED',
+        fileUrl: zipUrl,
+        completedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    console.error('ZIP generation failed:', error);
+    await prisma.export.update({
+      where: { id: exportId },
+      data: { status: 'FAILED' },
+    });
+  }
+}
+
+export default router;

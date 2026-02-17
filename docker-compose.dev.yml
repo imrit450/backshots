@@ -1,0 +1,20 @@
+version: '3.8'
+
+# Dev-only: just PostgreSQL. Run your backend/frontend with `npm run dev` as usual.
+# Start:  docker compose -f docker-compose.dev.yml up -d
+# Stop:   docker compose -f docker-compose.dev.yml down
+
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: backshots
+      POSTGRES_PASSWORD: backshots_dev
+      POSTGRES_DB: backshots
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+
+volumes:
+  pgdata_dev:

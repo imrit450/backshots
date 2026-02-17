@@ -1,0 +1,20 @@
+node_modules/
+dist/
+.env
+.env.production
+*.db
+*.db-journal
+uploads/originals/*
+uploads/thumbnails/*
+uploads/large/*
+exports/*
+!uploads/originals/.gitkeep
+!uploads/thumbnails/.gitkeep
+!uploads/large/.gitkeep
+!exports/.gitkeep
+.DS_Store
+*.log
+coverage/
+
+# Docker data volumes
+pgdata/
