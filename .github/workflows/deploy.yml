@@ -21,7 +21,7 @@ jobs:
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
-          POSTGRES_DB: backshots_test
+          POSTGRES_DB: lumora_test
         ports:
           - 5432:5432
         options: >-
@@ -48,12 +48,12 @@ jobs:
         run: npx prisma db push --skip-generate
         working-directory: backend
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/backshots_test?schema=public
+          DATABASE_URL: postgresql://test:test@localhost:5432/lumora_test?schema=public
 
       - name: Run tests
         run: npm test
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/backshots_test?schema=public
+          DATABASE_URL: postgresql://test:test@localhost:5432/lumora_test?schema=public
           JWT_SECRET: test-secret
           NODE_ENV: test
 
@@ -86,7 +86,7 @@ jobs:
           key_path: /home/runner/.ssh/deploy_key
           port: ${{ secrets.VPS_PORT || 22 }}
           script: |
-            cd ${{ secrets.APP_DIR || '~/backshots' }}
+            cd ${{ secrets.APP_DIR || '~/lumora' }}
             git pull origin main
             set -a; source .env.production; set +a
             docker compose -f docker-compose.prod.yml build

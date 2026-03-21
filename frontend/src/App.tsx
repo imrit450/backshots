@@ -11,8 +11,11 @@ import EventSettings from './host/EventSettings';
 import Moderation from './host/Moderation';
 import HostGallery from './host/Gallery';
 import ExportPage from './host/Export';
+import Livestream from './host/Livestream';
 import Admin from './host/Admin';
 import Pricing from './host/Pricing';
+import MarketingLanding from './pages/MarketingLanding';
+import HowItWorks from './pages/HowItWorks';
 
 // Guest pages
 import GuestLanding from './guest/Landing';
@@ -22,10 +25,13 @@ import GuestGallery from './guest/Gallery';
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
 
-  if (loading) {
+  // While we're still resolving initial auth state and don't yet know if the
+  // user is signed in, show a spinner. Once authenticated, brief loading
+  // blips should not blank the whole screen.
+  if (loading && !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-pine-800 border-t-transparent" />
+      <div className="min-h-screen flex items-center justify-center bg-surface">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
       </div>
     );
   }
@@ -100,6 +106,14 @@ export default function App() {
         }
       />
       <Route
+        path="/host/events/:eventId/livestream"
+        element={
+          <ProtectedRoute>
+            <Livestream />
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/host/admin"
         element={
           <ProtectedRoute>
@@ -122,9 +136,10 @@ export default function App() {
       <Route path="/e/:eventCode/camera" element={<GuestCamera />} />
       <Route path="/e/:eventCode/gallery" element={<GuestGallery />} />
 
-      {/* Default redirect */}
-      <Route path="/" element={<Navigate to="/host" replace />} />
-      <Route path="*" element={<Navigate to="/host" replace />} />
+      {/* Marketing landing + fallback */}
+      <Route path="/" element={<MarketingLanding />} />
+      <Route path="/how-it-works" element={<HowItWorks />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

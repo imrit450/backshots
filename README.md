@@ -1,6 +1,6 @@
-# Backshots - Event Photo Capture System
+# Lumora - Event Photo Capture System
 
-Backshots is an event photo capture platform where hosts create events, share QR codes, and guests capture photos instantly without installing an app.
+Lumora is an event photo capture platform where hosts create events, share QR codes, and guests capture photos instantly without installing an app.
 
 ## Architecture
 
@@ -9,6 +9,27 @@ Backshots is an event photo capture platform where hosts create events, share QR
 - **Image Processing**: Sharp (thumbnails, large derivatives, EXIF stripping)
 - **Auth**: JWT tokens for hosts and guests
 - **Storage**: Local filesystem (dev), S3-compatible (prod)
+
+## Run the App (Docker Compose)
+
+This repo is set up to run via the **Docker Compose production stack** (nginx + backend + frontend + postgres).
+
+### Prerequisites
+
+- Docker Desktop running
+- `docker` / `docker compose` available
+
+### Command
+
+From the repo root (`Lumora/`):
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+### Access
+
+- App UI: `http://localhost:3000`
 
 ## Quick Start
 
@@ -37,12 +58,12 @@ npm run dev
 
 - **Frontend**: http://localhost:5173
 - **Backend API**: http://localhost:3001
-- **Demo Login**: demo@backshots.app / demo1234
+- **Demo Login**: demo@lumora.app / demo1234
 
 ## Project Structure
 
 ```
-Backshots/
+Lumora/
 ├── backend/               # Express API server
 │   ├── prisma/            # Database schema & migrations
 │   ├── src/
@@ -163,7 +184,7 @@ Push to main  →  GitHub Actions  →  Test & Build  →  SSH to VPS  →  Pull
 2. **Run the setup script** from your local machine:
 
 ```bash
-ssh root@your-server 'bash -s' < scripts/vps-setup.sh https://github.com/YOUR_USER/backshots.git
+ssh root@your-server 'bash -s' < scripts/vps-setup.sh https://github.com/YOUR_USER/lumora.git
 ```
 
 This installs Docker, creates a `deploy` user, clones the repo, generates secrets, and starts the app.
@@ -172,13 +193,13 @@ This installs Docker, creates a `deploy` user, clones the repo, generates secret
 
 ```bash
 ssh deploy@your-server
-nano ~/backshots/.env.production
+nano ~/lumora/.env.production
 ```
 
 Set your domain, S3 keys, etc. Then restart:
 
 ```bash
-cd ~/backshots
+cd ~/lumora
 set -a; source .env.production; set +a
 docker compose -f docker-compose.prod.yml up -d
 ```
@@ -193,7 +214,7 @@ Add these in your GitHub repo → Settings → Secrets and variables → Actions
 | `VPS_USER`     | `deploy`                       |
 | `VPS_SSH_KEY`  | Private SSH key for deploy user|
 | `VPS_PORT`     | SSH port (default: 22)         |
-| `APP_DIR`      | `/home/deploy/backshots`       |
+| `APP_DIR`      | `/home/deploy/lumora`       |
 
 ### Generate an SSH key for deployments
 
@@ -212,7 +233,7 @@ cat deploy_key
 SSH into your server and run:
 
 ```bash
-cd ~/backshots
+cd ~/lumora
 git pull origin main
 set -a; source .env.production; set +a
 docker compose -f docker-compose.prod.yml build
@@ -235,25 +256,25 @@ npm run dev
 
 Your `.env` should have:
 ```
-DATABASE_URL="postgresql://backshots:backshots_dev@localhost:5432/backshots?schema=public"
+DATABASE_URL="postgresql://lumora:lumora_dev@localhost:5432/lumora?schema=public"
 ```
 
 ### Adding SSL (HTTPS) with Let's Encrypt
 
-1. **Point your domain to the VPS** — Add an A record: `backshots.zilware.mu` → your server IP.
+1. **Point your domain to the VPS** — Add an A record: `lumora.zilware.mu` → your server IP.
 
 2. **Ensure the app is running** — `docker compose -f docker-compose.prod.yml up -d`
 
 3. **Run the SSL init script** on the VPS:
    ```bash
-   cd ~/backshots
-   bash scripts/init-ssl.sh backshots.zilware.mu
+   cd ~/lumora
+   bash scripts/init-ssl.sh lumora.zilware.mu
    ```
 
 4. **Update `.env.production`** with your HTTPS URLs:
    ```
-   FRONTEND_URL=https://backshots.zilware.mu
-   BASE_URL=https://backshots.zilware.mu
+   FRONTEND_URL=https://lumora.zilware.mu
+   BASE_URL=https://lumora.zilware.mu
    ```
 
 5. **Restart the backend** so it uses the new URLs:

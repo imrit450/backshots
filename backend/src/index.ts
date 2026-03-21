@@ -14,6 +14,8 @@ import photoRoutes from './routes/photos';
 import galleryRoutes from './routes/gallery';
 import moderationRoutes from './routes/moderation';
 import exportRoutes from './routes/exports';
+import videoRoutes from './routes/videos';
+import { initRuntimeConfig } from './services/runtimeConfig';
 
 export const prisma = new PrismaClient();
 
@@ -55,8 +57,14 @@ app.use(cors({
 app.use(express.json());
 app.use(generalLimiter);
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.resolve(config.uploadDir)));
+// Serve uploaded files — set explicit Content-Type for formats that
+// older versions of the mime library don't know (e.g. .avif)
+app.use('/uploads', express.static(path.resolve(config.uploadDir), {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.avif')) res.setHeader('Content-Type', 'image/avif');
+    else if (filePath.endsWith('.webp')) res.setHeader('Content-Type', 'image/webp');
+  },
+}));
 app.use('/exports', express.static(path.resolve(config.exportDir)));
 
 // API Routes
@@ -68,6 +76,7 @@ app.use('/v1/events', photoRoutes);
 app.use('/v1/events', galleryRoutes);
 app.use('/v1/events', moderationRoutes);
 app.use('/v1/events', exportRoutes);
+app.use('/v1/events', videoRoutes);
 
 // Health check
 app.get('/health', (_req, res) => {
@@ -101,12 +110,13 @@ function wrapAsync() {
 // Start server
 async function main() {
   await prisma.$connect();
+  await initRuntimeConfig(prisma);
   console.log('Database connected');
 
   // Only start server if not in test mode
   if (process.env.NODE_ENV !== 'test') {
     app.listen(config.port, () => {
-      console.log(`Backshots API running on http://localhost:${config.port}`);
+      console.log(`Lumora API running on http://localhost:${config.port}`);
       console.log(`Frontend URL: ${config.frontendUrl}`);
     });
   }

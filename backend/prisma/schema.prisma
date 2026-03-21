@@ -49,6 +49,7 @@ model Event {
   guestSessions GuestSession[]
   photos        Photo[]
   exports       Export[]
+  videos        Video[]
 
   @@map("events")
 }
@@ -66,6 +67,7 @@ model GuestSession {
 
   event  Event   @relation(fields: [eventId], references: [id])
   photos Photo[]
+  videos Video[]
 
   @@unique([eventId, deviceId])
   @@map("guest_sessions")
@@ -108,4 +110,39 @@ model Export {
   event Event @relation(fields: [eventId], references: [id])
 
   @@map("exports")
+}
+
+model Video {
+  id             String   @id @default(uuid())
+  eventId        String   @map("event_id")
+  guestSessionId String   @map("guest_session_id")
+  title          String?
+  description    String?
+  status         String   @default("PENDING")
+  hidden         Boolean  @default(false)
+  capturedAt     DateTime @default(now()) @map("captured_at")
+  url            String   @map("url")
+  durationSec    Int      @map("duration_sec")
+  fileSize       Int      @default(0) @map("file_size")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  event        Event        @relation(fields: [eventId], references: [id])
+  guestSession GuestSession @relation(fields: [guestSessionId], references: [id])
+
+  @@map("videos")
+}
+
+model SystemConfig {
+  id               Int      @id @default(1)
+  storageType      String   @default("filesystem") @map("storage_type")
+  s3Bucket         String?  @map("s3_bucket")
+  s3Region         String?  @map("s3_region")
+  s3Endpoint       String?  @map("s3_endpoint")
+  s3AccessKeyId    String?  @map("s3_access_key_id")
+  s3SecretAccessKey String? @map("s3_secret_access_key")
+  s3PublicUrl      String?  @map("s3_public_url")
+  s3ForcePathStyle Boolean  @default(false) @map("s3_force_path_style")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("system_config")
 }

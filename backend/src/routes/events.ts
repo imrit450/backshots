@@ -59,12 +59,12 @@ router.post('/', authenticateHost, asyncHandler(async (req: Request, res: Respon
     throw new AppError('Host not found', 404);
   }
 
-  if (host.role !== 'admin' && !host.canCreateEvents) {
-    throw new AppError('You do not have permission to create events. Contact an admin.', 403);
-  }
+  // Resolve host plan (defaults to free) and use it to control basic event creation.
+  // We rely purely on the plan's maxEvents (plus admin role) to gate creation,
+  // so free users can always create up to their 1 allowed event.
+  const plan = getPlan(host.plan);
 
   // Enforce plan event limit
-  const plan = getPlan(host.plan);
   if (plan.maxEvents !== -1 && host.role !== 'admin') {
     const existingCount = await prisma.event.count({ where: { hostId: host.id } });
     if (existingCount >= plan.maxEvents) {
@@ -221,6 +221,24 @@ router.patch('/:eventId', authenticateHost, asyncHandler(async (req: Request, re
   res.json({ event: formatEvent(updated) });
 }));
 
+// DELETE /v1/events/:eventId - Host deletes an event they own (or admin)
+router.delete('/:eventId', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+  const event = await prisma.event.findFirst({ where });
+
+  if (!event) {
+    throw new AppError('Event not found', 404);
+  }
+
+  // Delete child records first to satisfy FK constraints
+  await prisma.photo.deleteMany({ where: { eventId: event.id } });
+  await prisma.guestSession.deleteMany({ where: { eventId: event.id } });
+  await prisma.export.deleteMany({ where: { eventId: event.id } });
+  await prisma.event.delete({ where: { id: event.id } });
+
+  res.status(204).send();
+}));
+
 // ── Event icon upload ──────────────────────────────────────────────────
 
 const iconUpload = multer({
@@ -254,7 +272,8 @@ router.post(
 
     // Process icon: resize to 256×256, convert to WebP
     const iconName = `${uuidv4()}.webp`;
-    const iconKey = `icons/${iconName}`;
+    const iconPrefix = `hosts/${event.hostId}/events/${event.id}`;
+    const iconKey = `${iconPrefix}/icons/${iconName}`;
 
     const iconBuffer = await sharp(req.file.buffer)
       .resize(256, 256, { fit: 'cover' })
@@ -312,8 +331,12 @@ router.get('/:eventId/qr', authenticateHost, asyncHandler(async (req: Request, r
     throw new AppError('Event not found', 404);
   }
 
-  const qrDataUrl = await generateQRCodeDataUrl(event.eventCode);
-  const eventUrl = getEventUrl(event.eventCode);
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+  const origin = `${proto}://${host}`;
+
+  const qrDataUrl = await generateQRCodeDataUrl(event.eventCode, origin);
+  const eventUrl = getEventUrl(event.eventCode, origin);
 
   res.json({
     qrCode: qrDataUrl,

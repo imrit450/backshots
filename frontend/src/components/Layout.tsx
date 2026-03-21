@@ -1,92 +1,318 @@
-import { useNavigate, Link } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { Camera, LogOut, ChevronLeft, Shield, Crown } from 'lucide-react';
-import Footer from './Footer';
+import { useToast } from './Toast';
+import { api } from '../api/client';
+import { UserButton } from '@clerk/react';
+import {
+  LayoutDashboard,
+  CalendarDays,
+  Settings,
+  Shield,
+  Crown,
+  Menu,
+} from 'lucide-react';
 import { getPlan } from '../config/plans';
+import { LogoIcon, LogoWordmark } from './Logo';
 
 interface LayoutProps {
   children: React.ReactNode;
   title?: string;
+  subtitle?: string;
   showBack?: boolean;
   backTo?: string;
 }
 
-export default function Layout({ children, title, showBack, backTo }: LayoutProps) {
-  const { host, logout, isAdmin } = useAuth();
-  const navigate = useNavigate();
+interface NavItem {
+  label: string;
+  to: string;
+  icon: React.ReactNode;
+  matchExact?: boolean;
+}
 
+function NavLink({ item, active, onClick }: { item: NavItem; active: boolean; onClick?: () => void }) {
   return (
-    <div className="min-h-screen bg-ivory flex flex-col">
-      {/* Header */}
-      <header className="bg-pine-800 sticky top-0 z-50 shadow-md">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {showBack && (
-              <button
-                onClick={() => (backTo ? navigate(backTo) : navigate(-1))}
-                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
-              >
-                <ChevronLeft className="w-5 h-5 text-white" />
-              </button>
-            )}
-            <Link to="/host" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-gold-300 rounded-lg flex items-center justify-center">
-                <Camera className="w-4 h-4 text-pine-800" />
-              </div>
-              <span className="font-display text-xl font-semibold text-white tracking-wide">
-                Backshots
-              </span>
-            </Link>
-            {title && (
-              <>
-                <span className="text-white/30">/</span>
-                <h1 className="font-sans font-semibold text-sm text-white/80 truncate">{title}</h1>
-              </>
-            )}
-          </div>
+    <Link
+      to={item.to}
+      onClick={onClick}
+      className={
+        active
+          ? 'nav-link-active'
+          : 'nav-link'
+      }
+    >
+      <span className="w-5 h-5 flex items-center justify-center flex-shrink-0">
+        {item.icon}
+      </span>
+      <span className="text-sm font-medium">{item.label}</span>
+    </Link>
+  );
+}
 
-          {host && (
-            <div className="flex items-center gap-2 sm:gap-4">
+const PENDING_POLL_MS = 12_000;
+
+export default function Layout({ children, title, subtitle, showBack, backTo }: LayoutProps) {
+  const { host, isAdmin, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { addToast } = useToast();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const lastPendingRef = useRef<number | null>(null);
+
+  const plan = host ? getPlan(host.plan) : null;
+
+  // ── Global pending-photo notifier ────────────────────────────────────────
+  const eventIdMatch = location.pathname.match(/\/host\/events\/([^/]+)/);
+  const currentEventId = eventIdMatch ? eventIdMatch[1] : null;
+
+  useEffect(() => {
+    if (!currentEventId) {
+      lastPendingRef.current = null;
+      return;
+    }
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const data = await api.getEventStats(currentEventId);
+        if (cancelled) return;
+        const pending: number = data.stats?.pending ?? 0;
+        if (lastPendingRef.current !== null && pending > lastPendingRef.current) {
+          const diff = pending - lastPendingRef.current;
+          addToast({
+            type: 'photo',
+            message: `${diff} photo${diff > 1 ? 's' : ''} awaiting your review`,
+            duration: 8000,
+            onClick: () => navigate(`/host/events/${currentEventId}/moderation`),
+          });
+        }
+        lastPendingRef.current = pending;
+      } catch {
+        // silent — don't disrupt the UI for a background poll failure
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, PENDING_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      lastPendingRef.current = null;
+    };
+  }, [currentEventId, addToast, navigate]);
+
+  const navItems: NavItem[] = [
+    {
+      label: 'Dashboard',
+      to: '/host',
+      icon: <LayoutDashboard className="w-5 h-5" />,
+      matchExact: true,
+    },
+    {
+      label: 'Events',
+      to: '/host',
+      icon: <CalendarDays className="w-5 h-5" />,
+      matchExact: true,
+    },
+    {
+      label: 'Pricing',
+      to: '/host/pricing',
+      icon: <Crown className="w-5 h-5" />,
+    },
+  ];
+
+  if (!authLoading && isAdmin) {
+    navItems.push({
+      label: 'Admin',
+      to: '/host/admin',
+      icon: <Shield className="w-5 h-5" />,
+    });
+  }
+
+  function isActive(item: NavItem): boolean {
+    if (item.matchExact) return location.pathname === item.to;
+    return location.pathname.startsWith(item.to);
+  }
+
+  const planBadgeColors: Record<string, string> = {
+    free: 'text-on-surface-variant bg-surface-variant',
+    starter: 'text-primary bg-primary/10',
+    pro: 'text-secondary bg-secondary/10',
+    business: 'text-tertiary bg-tertiary/10',
+    enterprise: 'text-tertiary bg-tertiary/10',
+  };
+  const planColor = host ? (planBadgeColors[host.plan] ?? planBadgeColors.free) : planBadgeColors.free;
+
+  const Sidebar = ({ onNavClick }: { onNavClick?: () => void }) => (
+    <div className="flex flex-col h-full">
+      {/* Logo */}
+      <div className="px-5 pt-6 pb-5 flex-shrink-0">
+        <Link
+          to="/host"
+          className="flex items-center gap-2.5 group"
+          onClick={onNavClick}
+        >
+          <LogoWordmark iconSize={28} textSize="text-xl" />
+        </Link>
+      </div>
+
+      {/* Divider */}
+      <div className="mx-4 h-px bg-outline-variant/40 mb-4 flex-shrink-0" />
+
+      {/* Nav */}
+      <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto no-scrollbar">
+        {navItems.map((item) => (
+          <NavLink
+            key={item.to + item.label}
+            item={item}
+            active={isActive(item)}
+            onClick={onNavClick}
+          />
+        ))}
+      </nav>
+
+      {/* User info at bottom */}
+      {host && (
+        <div className="flex-shrink-0 p-4 border-t border-outline-variant/30">
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0">
+              <UserButton />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-on-surface truncate leading-tight">
+                {host.displayName}
+              </p>
               <Link
                 to="/host/pricing"
-                className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 transition-colors"
-                title="View plans"
+                className={`inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-opacity hover:opacity-80 ${planColor}`}
+                onClick={onNavClick}
               >
-                <Crown className="w-3.5 h-3.5 text-gold-300" />
-                <span className="text-gold-200 capitalize">{getPlan(host.plan).name}</span>
+                <Crown className="w-2.5 h-2.5" />
+                {plan?.name}
               </Link>
-              {isAdmin && (
-                <Link
-                  to="/host/admin"
-                  className="p-2 hover:bg-white/10 rounded-lg transition-colors text-amber-300"
-                  title="Admin Panel"
-                >
-                  <Shield className="w-5 h-5" />
-                </Link>
-              )}
-              <span className="text-sm text-white/60 hidden sm:inline">
-                {host.displayName}
-              </span>
-              <button
-                onClick={() => {
-                  logout();
-                  navigate('/host/login');
-                }}
-                className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white/60"
-                title="Logout"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-surface flex">
+      {/* ── Desktop sidebar ─────────────────────────────── */}
+      <aside className="hidden lg:flex flex-col fixed left-0 top-0 bottom-0 w-64 bg-surface-container-low border-r border-outline-variant/30 z-40">
+        <Sidebar />
+      </aside>
+
+      {/* ── Mobile sidebar overlay ───────────────────────── */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 lg:hidden"
+          onClick={() => setMobileOpen(false)}
+        >
+          {/* Scrim */}
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+
+          {/* Drawer */}
+          <aside
+            className="absolute left-0 top-0 bottom-0 w-64 bg-surface-container-low border-r border-outline-variant/30 flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Sidebar onNavClick={() => setMobileOpen(false)} />
+          </aside>
+        </div>
+      )}
+
+      {/* ── Mobile top app bar ───────────────────────────── */}
+      <header className="lg:hidden fixed top-0 left-0 right-0 z-30 h-16 bg-surface-container-low/90 backdrop-blur-xl border-b border-outline-variant/30 flex items-center px-4 gap-3">
+        <button
+          className="p-2 -ml-1 rounded-xl text-on-surface-variant hover:bg-surface-container transition-colors"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+
+        {showBack && (
+          <button
+            onClick={() => (backTo ? navigate(backTo) : navigate(-1))}
+            className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container transition-colors"
+            aria-label="Go back"
+          >
+            <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+          </button>
+        )}
+
+        <Link to="/host" className="flex items-center gap-2 flex-1 min-w-0">
+          <LogoIcon size={22} className="flex-shrink-0" />
+          {title && (
+            <>
+              <span className="text-on-surface-variant/40 text-sm">/</span>
+              <span className="text-sm font-medium text-on-surface-variant truncate">{title}</span>
+            </>
           )}
+        </Link>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {!authLoading && isAdmin && (
+            <Link
+              to="/host/admin"
+              className="p-2 rounded-xl text-secondary hover:bg-secondary/10 transition-colors"
+              title="Admin Panel"
+            >
+              <Shield className="w-4 h-4" />
+            </Link>
+          )}
+          <Link
+            to="/host/pricing"
+            className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container transition-colors"
+            title="Settings"
+          >
+            <Settings className="w-4 h-4" />
+          </Link>
+          <Link
+            to="/"
+            className="p-2 rounded-xl text-on-surface-variant hover:bg-surface-container transition-colors"
+            title="Visit website"
+          >
+            <span className="material-symbols-outlined text-[20px]">language</span>
+          </Link>
+          {host && <UserButton />}
         </div>
       </header>
 
-      {/* Content */}
-      <main className="max-w-6xl mx-auto px-4 py-6 flex-1">{children}</main>
+      {/* ── Main content ─────────────────────────────────── */}
+      <main className="flex-1 lg:ml-64 pt-16 lg:pt-0 min-h-screen overflow-x-hidden">
+        {/* Desktop page header */}
+        {(title || subtitle || showBack) && (
+          <div className="hidden lg:flex items-center gap-3 px-8 pt-8 pb-2">
+            {showBack && (
+              <button
+                onClick={() => (backTo ? navigate(backTo) : navigate(-1))}
+                className="p-2 -ml-2 rounded-xl text-on-surface-variant hover:bg-surface-container transition-colors"
+                aria-label="Go back"
+              >
+                <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+              </button>
+            )}
+            <div>
+              {title && (
+                <h1 className="font-headline text-2xl font-bold text-on-surface leading-tight">
+                  {title}
+                </h1>
+              )}
+              {subtitle && (
+                <p className="text-sm text-on-surface-variant mt-0.5">{subtitle}</p>
+              )}
+            </div>
+          </div>
+        )}
 
-      {/* Footer */}
-      <Footer className="py-6" variant="light" />
+        <div className="px-4 lg:px-8 py-4 lg:py-6">
+          {children}
+        </div>
+      </main>
     </div>
   );
 }

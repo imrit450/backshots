@@ -1,37 +1,50 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../api/client';
-import { Plus, Calendar, Users, Image, ChevronRight, Lock } from 'lucide-react';
+import { Plus, Calendar, Users, Image, Lock } from 'lucide-react';
+import { getPlan } from '../config/plans';
 
 export default function EventList() {
-  const { canCreateEvents } = useAuth();
+  const { host, isAdmin, canCreateEvents, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const [events, setEvents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const effectivePlan = getPlan(host?.plan || 'free');
+  const canCreateByPlan = effectivePlan.maxEvents !== 0;
+  const canCreate = isAdmin || canCreateEvents || canCreateByPlan;
+
+  // Wait for auth to fully resolve (Clerk→backend exchange) before fetching,
+  // so the host token is set and the request isn't rejected with 401.
   useEffect(() => {
+    if (authLoading) return;
     api
       .getEvents()
       .then((data) => setEvents(data.events))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }, [authLoading]);
 
   return (
-    <Layout>
+    <Layout title="My Events" subtitle="EVENT MANAGEMENT">
+      {/* Page header row */}
       <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="font-display text-3xl text-charcoal">My Events</h1>
-          <p className="text-gray-500 mt-1 font-sans text-sm">Manage your event photo experiences</p>
-        </div>
-        {canCreateEvents ? (
-          <Link to="/host/events/new" className="btn-primary flex items-center gap-2">
-            <Plus className="w-5 h-5" />
+        <div />
+        {canCreate ? (
+          <Link
+            to="/host/events/new"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-tr from-primary to-primary-dim text-on-primary font-semibold text-sm shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:opacity-90 transition-all duration-200"
+          >
+            <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">New Event</span>
           </Link>
         ) : (
-          <span className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-100 px-3 py-2 rounded-lg">
+          <span
+            title="Contact your admin to create events"
+            className="flex items-center gap-1.5 text-xs text-on-surface-variant bg-surface-container-highest px-3 py-2 rounded-xl cursor-not-allowed opacity-60"
+          >
             <Lock className="w-3.5 h-3.5" />
             Contact admin to create events
           </span>
@@ -39,87 +52,103 @@ export default function EventList() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-pine-800 border-t-transparent" />
+        <div className="flex justify-center py-24">
+          <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
         </div>
       ) : events.length === 0 ? (
-        <div className="text-center py-20">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gold-50 rounded-full mb-6">
-            <Calendar className="w-10 h-10 text-gold-500" />
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="w-full max-w-sm border-2 border-dashed border-outline-variant/40 rounded-xl p-12 flex flex-col items-center text-center">
+            <span className="material-symbols-outlined text-on-surface-variant text-5xl mb-4">add_a_photo</span>
+            <h2 className="font-headline text-xl font-bold text-on-surface mb-2">No events yet</h2>
+            <p className="text-on-surface-variant text-sm mb-6 leading-relaxed">
+              {canCreate
+                ? 'Create your first event and share a QR code with guests to start capturing photos.'
+                : "You don't have permission to create events yet. Ask an admin to grant you access."}
+            </p>
+            {canCreate && (
+              <Link
+                to="/host/events/new"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-tr from-primary to-primary-dim text-on-primary font-semibold text-sm shadow-lg shadow-primary/20 hover:opacity-90 transition-all duration-200"
+              >
+                <Plus className="w-4 h-4" />
+                Create Your First Event
+              </Link>
+            )}
           </div>
-          <h2 className="font-display text-2xl text-charcoal mb-2">No events yet</h2>
-          <p className="text-gray-500 mb-6 max-w-md mx-auto font-sans text-sm">
-            {canCreateEvents
-              ? 'Create your first event and share a QR code with guests to start capturing photos.'
-              : 'You don\'t have permission to create events yet. Ask an admin to grant you access.'}
-          </p>
-          {canCreateEvents && (
-            <Link to="/host/events/new" className="btn-primary inline-flex items-center gap-2">
-              <Plus className="w-5 h-5" />
-              Create Your First Event
-            </Link>
-          )}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {events.map((event) => (
-            <Link
+            <div
               key={event.id}
-              to={`/host/events/${event.id}`}
-              className="card hover:shadow-md hover:border-gold-200 transition-all duration-200 group"
+              onClick={() => navigate(`/host/events/${event.id}`)}
+              className="bg-surface-container-low rounded-xl overflow-hidden group hover:-translate-y-1 transition-all duration-300 cursor-pointer"
             >
-              <div className="flex items-start gap-3 mb-3">
+              {/* Card image area */}
+              <div className="relative h-48">
                 {event.iconUrl ? (
-                  <img src={event.iconUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-pine-50" />
+                  <img
+                    src={event.iconUrl}
+                    alt={event.title}
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
-                  <div className="w-10 h-10 rounded-lg bg-pine-50 flex items-center justify-center flex-shrink-0">
-                    <Calendar className="w-5 h-5 text-pine-300" />
+                  <div className="w-full h-full bg-gradient-to-br from-primary/20 to-primary-dim/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-primary/40 text-6xl">photo_camera</span>
                   </div>
                 )}
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-display text-xl text-charcoal group-hover:text-pine-700 transition-colors truncate">
-                    {event.title}
-                  </h3>
-                </div>
-                <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-gold-400 transition-colors flex-shrink-0" />
-              </div>
 
-              <div className="flex items-center gap-1 text-sm text-gray-500 mb-4">
-                <Calendar className="w-4 h-4" />
-                {new Date(event.startDatetime).toLocaleDateString('en-US', {
-                  weekday: 'short',
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
-              </div>
-
-              <div className="flex items-center gap-4 text-sm">
-                <div className="flex items-center gap-1 text-gray-500">
-                  <Image className="w-4 h-4" />
-                  <span>{event.photoCount || 0} photos</span>
-                </div>
-                <div className="flex items-center gap-1 text-gray-500">
-                  <Users className="w-4 h-4" />
-                  <span>{event.guestCount || 0} guests</span>
+                {/* Status badge */}
+                <div className="absolute top-3 right-3">
+                  {event.isActive ? (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-container/20 text-tertiary border border-tertiary/20 text-xs font-semibold backdrop-blur-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse" />
+                      Active
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-highest/80 text-on-surface-variant text-xs font-semibold backdrop-blur-sm">
+                      Inactive
+                    </span>
+                  )}
                 </div>
               </div>
 
-              <div className="flex gap-2 mt-4">
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${
-                    event.isActive
-                      ? 'bg-green-100 text-green-700'
-                      : 'bg-gray-100 text-gray-500'
-                  }`}
-                >
-                  {event.isActive ? 'Active' : 'Inactive'}
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-pine-50 text-pine-700">
+              {/* Card body */}
+              <div className="p-6">
+                <h3 className="font-headline font-bold text-on-surface text-lg leading-snug truncate mb-1">
+                  {event.title}
+                </h3>
+
+                <div className="flex items-center gap-1.5 text-on-surface-variant text-sm mb-4">
+                  <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span>
+                    {new Date(event.startDatetime).toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                </div>
+
+                {/* Stats row */}
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="flex items-center gap-1 text-on-surface-variant text-xs">
+                    <Image className="w-3.5 h-3.5" />
+                    <span>{event.photoCount || 0} photos</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-on-surface-variant text-xs">
+                    <Users className="w-3.5 h-3.5" />
+                    <span>{event.guestCount || 0} guests</span>
+                  </div>
+                </div>
+
+                {/* Moderation tag */}
+                <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide">
                   {event.moderationMode === 'AUTO' ? 'Auto-approve' : 'Manual approval'}
                 </span>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}

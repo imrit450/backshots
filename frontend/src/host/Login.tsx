@@ -1,111 +1,83 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
-import { Camera, Eye, EyeOff } from 'lucide-react';
-import Footer from '../components/Footer';
+import { SignIn } from '@clerk/react';
+import { LogoWordmark } from '../components/Logo';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
-  const navigate = useNavigate();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-
-    try {
-      await login(email, password);
-      navigate('/host');
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-pine-800 flex flex-col items-center justify-center p-4">
-      {/* Subtle background glow */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-gold-300/5 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-pine-600/20 rounded-full blur-3xl" />
-      </div>
+    <div className="min-h-screen flex bg-surface overflow-hidden">
+      {/* ── Left panel (hidden on mobile) ── */}
+      <div className="hidden md:flex flex-col justify-between w-1/2 bg-surface-container-lowest relative overflow-hidden p-12">
+        {/* Ambient glow blobs */}
+        <div className="absolute top-[-80px] left-[-80px] w-80 h-80 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
+        <div className="absolute bottom-[-60px] right-[-60px] w-64 h-64 rounded-full bg-primary-dim/15 blur-3xl pointer-events-none" />
 
-      <div className="w-full max-w-md relative z-10">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gold-300 rounded-2xl mb-4 shadow-lg shadow-gold-300/20">
-            <Camera className="w-8 h-8 text-pine-800" />
-          </div>
-          <h1 className="font-display text-4xl font-semibold text-white">Backshots</h1>
-          <p className="text-white/50 mt-1 font-sans text-sm">Sign in to manage your events</p>
+        {/* Brand mark */}
+        <div className="relative z-10 flex items-center gap-2">
+          <LogoWordmark iconSize={26} textSize="text-xl" />
         </div>
 
-        {/* Form */}
-        <div className="bg-white rounded-2xl shadow-xl border border-pine-700/10 p-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">
-                {error}
-              </div>
-            )}
+        {/* Hero copy */}
+        <div className="relative z-10 flex flex-col gap-8">
+          <div>
+            <h1 className="font-headline font-extrabold text-5xl text-on-surface leading-[1.1] tracking-tight">
+              WELCOME<br />BACK
+            </h1>
+            <p className="mt-4 text-on-surface-variant text-base leading-relaxed max-w-xs">
+              Your guests' candid moments, curated and delivered. Manage events, review photos, and share memories — all in one place.
+            </p>
+          </div>
 
-            <div>
-              <label className="block text-sm font-medium text-charcoal mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input"
-                placeholder="you@example.com"
-                required
-              />
+          {/* Feature pills */}
+          <div className="flex flex-col gap-3">
+            <div className="inline-flex items-center gap-3 bg-surface-container-low border border-outline-variant/40 rounded-2xl px-5 py-3 w-fit glass-panel">
+              <span className="material-symbols-outlined text-primary text-xl">camera_alt</span>
+              <span className="text-on-surface text-sm font-medium font-body">Guest Camera Access</span>
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-charcoal mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input pr-12"
-                  placeholder="Enter your password"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
+            <div className="inline-flex items-center gap-3 bg-surface-container-low border border-outline-variant/40 rounded-2xl px-5 py-3 w-fit glass-panel">
+              <span className="material-symbols-outlined text-primary text-xl">photo_library</span>
+              <span className="text-on-surface text-sm font-medium font-body">Live Gallery Review</span>
             </div>
+          </div>
+        </div>
 
-            <button type="submit" className="btn-primary w-full" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
+        {/* Bottom tagline */}
+        <p className="relative z-10 text-on-surface-variant/50 text-xs font-body">
+          © {new Date().getFullYear()} Lumora — Event photography, reimagined.
+        </p>
+      </div>
 
-          <div className="mt-6 text-center text-sm text-gray-500">
-            Don't have an account?{' '}
-            <Link to="/host/signup" className="text-pine-700 font-medium hover:text-pine-800">
-              Sign up
-            </Link>
+      {/* ── Right panel ── */}
+      <div className="flex flex-1 flex-col items-center justify-center min-h-screen bg-surface p-6 md:p-12 relative overflow-y-auto">
+        {/* Subtle glow behind form */}
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-96 h-96 rounded-full bg-primary/5 blur-3xl pointer-events-none" />
+
+        <div className="w-full max-w-md relative z-10 flex flex-col items-center">
+          {/* Logo (mobile only — desktop shows it in left panel) */}
+          <div className="md:hidden flex items-center gap-2 mb-6">
+            <span className="material-symbols-outlined text-primary text-2xl">photo_camera</span>
+            <span className="font-headline font-extrabold text-xl text-on-surface tracking-tight">Lumora</span>
+          </div>
+
+          {/* Clerk SignIn component */}
+          <div className="w-full [&_.cl-rootBox]:w-full">
+            <SignIn
+              routing="hash"
+              signUpUrl="/host/signup"
+              fallbackRedirectUrl="/host"
+              appearance={{
+                variables: {
+                  colorBackground: '#ffffff',
+                  colorText: '#111111',
+                  colorTextSecondary: '#555555',
+                  colorInputBackground: '#ffffff',
+                  colorInputText: '#111111',
+                  colorPrimary: '#9146ff',
+                  borderRadius: '0.75rem',
+                },
+              }}
+            />
           </div>
         </div>
       </div>
-      <Footer className="mt-8" />
     </div>
   );
 }

@@ -7,11 +7,11 @@ import {
   Sparkles,
   Camera,
   Building2,
-  Users,
   Infinity,
   Crown,
+  Zap,
 } from 'lucide-react';
-import { PERSONAL_PLANS, BUSINESS_PLANS, PlanConfig } from '../config/plans';
+import { PERSONAL_PLANS, BUSINESS_PLANS, PLAN_LIST, PlanConfig } from '../config/plans';
 
 function PlanCard({
   plan,
@@ -26,32 +26,49 @@ function PlanCard({
 
   return (
     <div
-      className={`relative rounded-2xl border-2 p-6 flex flex-col transition-all ${
+      className={`relative bg-[#131313] rounded-xl p-8 flex flex-col transition-all duration-200 ${
         plan.popular
-          ? 'border-gold-400 shadow-lg shadow-gold-100 scale-[1.02]'
-          : isCurrent
-          ? 'border-pine-400 shadow-md'
-          : 'border-gray-200 hover:border-gray-300'
+          ? 'ring-1 ring-[#c19cff]/40 shadow-lg shadow-[#c19cff]/10'
+          : ''
       }`}
     >
       {plan.popular && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gold-400 text-pine-900 text-xs font-bold px-3 py-1 rounded-full flex items-center gap-1">
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-[#9146ff] to-[#c19cff] text-white text-xs font-bold px-4 py-1.5 rounded-full flex items-center gap-1.5 whitespace-nowrap shadow-lg">
           <Sparkles className="w-3 h-3" />
           Most Popular
         </div>
       )}
 
-      <div className="mb-4">
-        <h3 className="font-display text-xl text-charcoal">{plan.name}</h3>
-        <div className="mt-2 flex items-baseline gap-1">
+      {isCurrent && (
+        <div className="absolute top-4 right-4 bg-[#c19cff]/10 text-[#c19cff] text-xs font-semibold px-2.5 py-1 rounded-lg">
+          Current
+        </div>
+      )}
+
+      <div className="mb-6">
+        <h3
+          className="font-bold text-xl text-white mb-3"
+          style={{ fontFamily: '"Plus Jakarta Sans", sans-serif' }}
+        >
+          {plan.name}
+        </h3>
+        <div className="flex items-baseline gap-1.5">
           {plan.price === 0 ? (
-            <span className="text-3xl font-display font-bold text-charcoal">Free</span>
+            <span
+              className="text-4xl font-extrabold text-white"
+              style={{ fontFamily: '"Plus Jakarta Sans", sans-serif' }}
+            >
+              Free
+            </span>
           ) : (
             <>
-              <span className="text-3xl font-display font-bold text-charcoal">
+              <span
+                className="text-4xl font-extrabold text-white"
+                style={{ fontFamily: '"Plus Jakarta Sans", sans-serif' }}
+              >
                 ${plan.price.toFixed(2)}
               </span>
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-[#adaaaa]">
                 {plan.billing === 'per-event' ? '/ event' : '/ month'}
               </span>
             </>
@@ -59,43 +76,26 @@ function PlanCard({
         </div>
       </div>
 
-      <div className="flex-1 space-y-3 mb-6">
+      <div className="flex-1 space-y-3 mb-8">
         {plan.features.map((feature, i) => (
-          <div key={i} className="flex items-start gap-2 text-sm">
-            <Check className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-            <span className="text-gray-600">{feature}</span>
+          <div key={i} className="flex items-start gap-2.5 text-sm">
+            <Check className="w-4 h-4 text-[#c19cff] flex-shrink-0 mt-0.5" />
+            <span className="text-[#adaaaa]">{feature}</span>
           </div>
         ))}
       </div>
 
-      {/* Plan limits summary */}
-      <div className="flex items-center gap-3 text-xs text-gray-400 border-t border-gray-100 pt-4 mb-4">
-        <div className="flex items-center gap-1">
-          <Camera className="w-3.5 h-3.5" />
-          {plan.maxEvents === -1 ? 'Unlimited' : plan.maxEvents} event{plan.maxEvents !== 1 ? 's' : ''}
-        </div>
-        <div className="flex items-center gap-1">
-          <Users className="w-3.5 h-3.5" />
-          {plan.maxGuestsPerEvent === -1 ? (
-            <Infinity className="w-3.5 h-3.5" />
-          ) : (
-            `${plan.maxGuestsPerEvent}`
-          )}{' '}
-          guests
-        </div>
-      </div>
-
       {isCurrent ? (
-        <div className="w-full py-2.5 rounded-xl bg-pine-100 text-pine-700 text-sm font-semibold text-center">
+        <div className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#9146ff] to-[#c19cff] text-white text-sm font-semibold text-center">
           Current Plan
         </div>
       ) : (
         <button
           onClick={() => onSelect(plan.id)}
-          className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+          className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 ${
             plan.popular
-              ? 'bg-gold-400 text-pine-900 hover:bg-gold-500'
-              : 'bg-pine-800 text-white hover:bg-pine-700'
+              ? 'bg-gradient-to-r from-[#9146ff] to-[#c19cff] text-white hover:opacity-90'
+              : 'bg-[#262626] text-white hover:bg-[#2c2c2c]'
           }`}
         >
           {plan.price === 0 ? 'Get Started' : 'Select Plan'}
@@ -104,6 +104,41 @@ function PlanCard({
     </div>
   );
 }
+
+const COMPARISON_ROWS = [
+  {
+    label: 'Max Events',
+    key: 'maxEvents',
+    format: (v: number) => (v === -1 ? '∞' : String(v)),
+  },
+  {
+    label: 'Guests / Event',
+    key: 'maxGuestsPerEvent',
+    format: (v: number) => (v === -1 ? '∞' : String(v)),
+  },
+  {
+    label: 'Photos / Guest',
+    key: 'maxPhotosPerGuest',
+    format: (v: number) => (v === -1 ? '∞' : String(v)),
+  },
+  {
+    label: 'Storage',
+    key: 'maxStorageMb',
+    format: (v: number) => {
+      if (v >= 1024) return `${v / 1024} GB`;
+      return `${v} MB`;
+    },
+  },
+  {
+    label: 'Billing',
+    key: 'billing',
+    format: (v: string) => {
+      if (v === 'free') return 'Free';
+      if (v === 'per-event') return 'Per event';
+      return 'Monthly';
+    },
+  },
+];
 
 export default function Pricing() {
   const navigate = useNavigate();
@@ -117,7 +152,6 @@ export default function Pricing() {
       navigate('/host/signup');
       return;
     }
-    // For now, show a message. Payment integration can be added later.
     alert(
       `Plan upgrade to "${planId}" noted! Payment integration coming soon. Contact admin to activate your plan.`
     );
@@ -127,36 +161,39 @@ export default function Pricing() {
 
   if (authLoading) {
     return (
-      <Layout>
+      <Layout title="Pricing" subtitle="PLANS">
         <div className="flex justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-pine-800 border-t-transparent" />
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#c19cff] border-t-transparent" />
         </div>
       </Layout>
     );
   }
 
   return (
-    <Layout>
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
+    <Layout title="Pricing" subtitle="PLANS">
+      <div className="max-w-5xl mx-auto">
+        {/* Hero */}
         <div className="text-center mb-10">
-          <h1 className="font-display text-4xl text-charcoal mb-3">
+          <h1
+            className="font-extrabold text-4xl text-white mb-3"
+            style={{ fontFamily: '"Plus Jakarta Sans", sans-serif' }}
+          >
             Choose Your Plan
           </h1>
-          <p className="text-gray-500 max-w-md mx-auto">
+          <p className="text-[#adaaaa] max-w-md mx-auto text-base">
             From intimate gatherings to large-scale events. Pick the plan that fits your needs.
           </p>
         </div>
 
         {/* Category Toggle */}
         <div className="flex justify-center mb-10">
-          <div className="inline-flex bg-gray-100 rounded-xl p-1">
+          <div className="grid grid-cols-2 bg-[#262626] rounded-xl p-1 w-full max-w-sm">
             <button
               onClick={() => setTab('personal')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 tab === 'personal'
-                  ? 'bg-white text-charcoal shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-[#2c2c2c] text-white shadow-sm'
+                  : 'text-[#adaaaa] hover:text-white'
               }`}
             >
               <Camera className="w-4 h-4" />
@@ -164,26 +201,31 @@ export default function Pricing() {
             </button>
             <button
               onClick={() => setTab('business')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              className={`flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 tab === 'business'
-                  ? 'bg-white text-charcoal shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-[#2c2c2c] text-white shadow-sm'
+                  : 'text-[#adaaaa] hover:text-white'
               }`}
             >
               <Building2 className="w-4 h-4" />
-              Business & Freelancers
+              Business
             </button>
           </div>
         </div>
 
         {/* Business description */}
         {tab === 'business' && (
-          <div className="text-center mb-8 p-4 bg-pine-50 rounded-xl border border-pine-100">
+          <div className="text-center mb-8 p-4 bg-[#c19cff]/5 rounded-xl border border-[#c19cff]/10">
             <div className="flex items-center justify-center gap-2 mb-1">
-              <Crown className="w-5 h-5 text-gold-500" />
-              <span className="font-semibold text-pine-800">Built for professionals</span>
+              <Crown className="w-5 h-5 text-[#c19cff]" />
+              <span
+                className="font-semibold text-white"
+                style={{ fontFamily: '"Plus Jakarta Sans", sans-serif' }}
+              >
+                Built for professionals
+              </span>
             </div>
-            <p className="text-sm text-pine-600">
+            <p className="text-sm text-[#adaaaa]">
               Perfect for photographers, event planners, wedding coordinators, and agencies
               who need to manage multiple events with premium features.
             </p>
@@ -193,8 +235,10 @@ export default function Pricing() {
         {/* Plan Cards */}
         <div
           className={`grid gap-6 ${
-            plans.length === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
-          }`}
+            plans.length >= 3
+              ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+              : 'grid-cols-1 sm:grid-cols-2'
+          } mb-16`}
         >
           {plans.map((plan) => (
             <PlanCard
@@ -206,11 +250,81 @@ export default function Pricing() {
           ))}
         </div>
 
-        {/* FAQ / Notes */}
-        <div className="mt-12 text-center text-sm text-gray-400 space-y-1">
+        {/* Feature Comparison Table */}
+        <div className="mb-12">
+          <h2
+            className="font-bold text-xl text-white mb-6 text-center"
+            style={{ fontFamily: '"Plus Jakarta Sans", sans-serif' }}
+          >
+            Compare All Plans
+          </h2>
+          <div className="overflow-x-auto w-full rounded-xl">
+          <div className="bg-[#131313] overflow-hidden min-w-[560px]">
+            {/* Header */}
+            <div
+              className="grid border-b border-[#484847]"
+              style={{ gridTemplateColumns: `1fr repeat(${PLAN_LIST.length}, 1fr)` }}
+            >
+              <div className="p-4 text-xs font-semibold text-[#adaaaa] uppercase tracking-wider">
+                Feature
+              </div>
+              {PLAN_LIST.map((p) => (
+                <div
+                  key={p.id}
+                  className={`p-4 text-center text-xs font-bold uppercase tracking-wider ${
+                    p.id === currentPlan ? 'text-[#c19cff]' : 'text-[#adaaaa]'
+                  }`}
+                  style={{ fontFamily: '"Plus Jakarta Sans", sans-serif' }}
+                >
+                  {p.name}
+                </div>
+              ))}
+            </div>
+
+            {/* Rows */}
+            {COMPARISON_ROWS.map((row, i) => (
+              <div
+                key={row.key}
+                className={`grid border-b border-[#484847]/50 last:border-0 ${
+                  i % 2 === 0 ? 'bg-transparent' : 'bg-[#0e0e0e]'
+                }`}
+                style={{ gridTemplateColumns: `1fr repeat(${PLAN_LIST.length}, 1fr)` }}
+              >
+                <div className="p-4 text-sm text-[#adaaaa]">{row.label}</div>
+                {PLAN_LIST.map((p) => {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const val = (p as any)[row.key];
+                  const formatted = (row.format as (v: any) => string)(val);
+                  const isInfinite = formatted === '∞';
+                  return (
+                    <div
+                      key={p.id}
+                      className={`p-4 text-center text-sm font-medium ${
+                        p.id === currentPlan ? 'text-[#c19cff]' : 'text-white'
+                      }`}
+                    >
+                      {isInfinite ? (
+                        <Infinity className="w-4 h-4 inline text-[#c19cff]" />
+                      ) : (
+                        formatted
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+          </div>
+        </div>
+
+        {/* Footer Notes */}
+        <div className="text-center text-sm text-[#adaaaa]/60 space-y-1">
           <p>All plans include SSL encryption, mobile-optimized cameras, and QR code sharing.</p>
           <p>Per-event plans are one-time payments. Business plans are billed monthly.</p>
-          <p>Need a custom plan? Contact us at <span className="text-pine-600">support@zilware.mu</span></p>
+          <p>
+            Need a custom plan? Contact us at{' '}
+            <span className="text-[#c19cff]">support@zilware.mu</span>
+          </p>
         </div>
       </div>
     </Layout>

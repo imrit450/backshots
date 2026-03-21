@@ -18,7 +18,7 @@ describe('Events API', () => {
     const res = await request(app)
       .post('/v1/auth/host/signup')
       .send({
-        email: 'eventhost@backshots.app',
+        email: 'eventhost@lumora.app',
         password: 'password123',
         displayName: 'Event Host',
       });

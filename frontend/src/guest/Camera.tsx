@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { LogoIcon } from '../components/Logo';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useCamera } from '../hooks/useCamera';
 import { api } from '../api/client';
@@ -18,9 +19,10 @@ import {
   Type,
   FileText,
   Trash2,
+  Sun,
+  Timer,
+  Square,
 } from 'lucide-react';
-import { getTheme } from '../config/themes';
-import Footer from '../components/Footer';
 
 interface MyPhoto {
   id: string;
@@ -29,18 +31,30 @@ interface MyPhoto {
 }
 
 function loadMyPhotos(eventId: string): MyPhoto[] {
-  try {
-    return JSON.parse(sessionStorage.getItem(`myPhotos_${eventId}`) || '[]');
-  } catch {
-    return [];
-  }
+  try { return JSON.parse(sessionStorage.getItem(`myPhotos_${eventId}`) || '[]'); }
+  catch { return []; }
 }
-
 function saveMyPhotos(eventId: string, photos: MyPhoto[]) {
   sessionStorage.setItem(`myPhotos_${eventId}`, JSON.stringify(photos));
 }
 
 type ScreenState = 'camera' | 'preview' | 'success' | 'myPhotos' | 'photoPreview';
+type CameraMode = 'photo' | 'video';
+type TimerValue = 0 | 3 | 5 | 10;
+const TIMER_CYCLE: TimerValue[] = [0, 3, 5, 10];
+
+function getBestMimeType(): string {
+  const types = [
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+    'video/mp4',
+  ];
+  for (const t of types) {
+    if (MediaRecorder.isTypeSupported(t)) return t;
+  }
+  return '';
+}
 
 export default function GuestCamera() {
   const { eventCode } = useParams<{ eventCode: string }>();
@@ -60,41 +74,62 @@ export default function GuestCamera() {
   const [myPhotos, setMyPhotos] = useState<MyPhoto[]>([]);
   const [previewPhoto, setPreviewPhoto] = useState<MyPhoto | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Title & description for the photo
+  // Mode
+  const [mode, setMode] = useState<CameraMode>('photo');
+
+  // Video recording
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<BlobPart[]>([]);
+  const [recording, setRecording] = useState(false);
+  const [recordingElapsed, setRecordingElapsed] = useState(0);
+  const recordingElapsedRef = useRef(0);
+  const recordingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [videoDurationSec, setVideoDurationSec] = useState(0);
+  const recordingMimeRef = useRef('');
+
+  // Timer
+  const [timer, setTimer] = useState<TimerValue>(0);
+  const [timerCountdown, setTimerCountdown] = useState<number | null>(null);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Brightness (CSS filter, 50-200, default 100)
+  const [brightness, setBrightness] = useState(100);
+  const [showBrightnessSlider, setShowBrightnessSlider] = useState(false);
+
+  // Zoom
+  const [cssZoom, setCssZoom] = useState(1);
+  const pinchRef = useRef<{ startDist: number; startZoom: number } | null>(null);
+
+  // Title & description
   const [photoTitle, setPhotoTitle] = useState('');
   const [photoDescription, setPhotoDescription] = useState('');
 
   const session = JSON.parse(sessionStorage.getItem('guestSession') || '{}');
   const event = JSON.parse(sessionStorage.getItem('guestEvent') || '{}');
-  const theme = getTheme(event.theme);
   const guestName = localStorage.getItem('guestDisplayName') || session.displayName || '';
 
-  // Uploads closed = cutoff hours have passed since event start
   const uploadsClosed = (() => {
     const cutoff = event.uploadCutoffHours ?? 24;
     if (cutoff <= 0) return false;
     const start = event.startDatetime ? new Date(event.startDatetime).getTime() : 0;
     if (!start) return false;
-    const cutoffTime = start + cutoff * 60 * 60 * 1000;
-    return Date.now() > cutoffTime;
+    return Date.now() > start + cutoff * 3600_000;
   })();
 
-  // Sync photo statuses from the server
   const refreshPhotoStatuses = useCallback(async () => {
     if (!event.id) return;
     try {
       const data = await api.getMyPhotos(event.id);
       const serverPhotos: MyPhoto[] = data.photos.map((p: any) => ({
-        id: p.id,
-        thumbUrl: p.thumbUrl,
-        status: p.status,
+        id: p.id, thumbUrl: p.thumbUrl, status: p.status,
       }));
       setMyPhotos(serverPhotos);
       saveMyPhotos(event.id, serverPhotos);
-    } catch {
-      // Silently fail — keep local state
-    }
+    } catch { /* silently fail */ }
   }, [event.id]);
 
   useEffect(() => {
@@ -105,45 +140,151 @@ export default function GuestCamera() {
     camera.startCamera();
     if (event.id) {
       setMyPhotos(loadMyPhotos(event.id));
-      // Initial server sync
       refreshPhotoStatuses();
     }
     return () => camera.stopCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Poll for status changes every 15 seconds
   useEffect(() => {
     if (!event.id) return;
     const interval = setInterval(refreshPhotoStatuses, 15_000);
     return () => clearInterval(interval);
   }, [event.id, refreshPhotoStatuses]);
 
-  const handleCapture = useCallback(async () => {
+  // ── Pinch-to-zoom ──────────────────────────────────────────────
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[1].clientX - e.touches[0].clientX,
+        e.touches[1].clientY - e.touches[0].clientY,
+      );
+      pinchRef.current = { startDist: dist, startZoom: cssZoom };
+    }
+  }, [cssZoom]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2 && pinchRef.current) {
+      const dist = Math.hypot(
+        e.touches[1].clientX - e.touches[0].clientX,
+        e.touches[1].clientY - e.touches[0].clientY,
+      );
+      const scale = dist / pinchRef.current.startDist;
+      const newZoom = Math.max(1, Math.min(5, pinchRef.current.startZoom * scale));
+      setCssZoom(newZoom);
+      camera.applyZoom(newZoom);
+    }
+  }, [camera]);
+
+  const handleTouchEnd = useCallback(() => {
+    pinchRef.current = null;
+  }, []);
+
+  // ── Stop video recording ───────────────────────────────────────
+  const stopVideoRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+    if (flashEnabled && camera.torchSupported) {
+      camera.setTorch(false);
+    }
+  }, [flashEnabled, camera]);
+
+  // ── Core capture logic (runs after timer if set) ───────────────
+  const fireCapture = useCallback(async () => {
+    if (mode === 'video') {
+      if (recording) {
+        stopVideoRecording();
+        return;
+      }
+
+      // Start video recording
+      try {
+        const stream = camera.videoRef.current?.srcObject as MediaStream | null;
+        if (!stream) throw new Error('Camera not ready');
+
+        recordedChunksRef.current = [];
+        const mimeType = getBestMimeType();
+        recordingMimeRef.current = mimeType;
+        const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+        mediaRecorderRef.current = mr;
+
+        // Flash: torch on for video
+        if (flashEnabled && camera.torchSupported) {
+          camera.setTorch(true);
+        }
+
+        setRecording(true);
+        setRecordingElapsed(0);
+        recordingElapsedRef.current = 0;
+        setError('');
+
+        mr.ondataavailable = (e: BlobEvent) => {
+          if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+        };
+
+        mr.onstop = () => {
+          if (recordingIntervalRef.current) {
+            clearInterval(recordingIntervalRef.current);
+            recordingIntervalRef.current = null;
+          }
+          if (flashEnabled && camera.torchSupported) {
+            camera.setTorch(false);
+          }
+          const fileType = recordingMimeRef.current.includes('mp4') ? 'video/mp4' : 'video/webm';
+          const blob = new Blob(recordedChunksRef.current, { type: fileType });
+          const url = URL.createObjectURL(blob);
+          setCapturedBlob(blob);
+          setVideoPreviewUrl(url);
+          const dur = Math.max(1, Math.min(10, recordingElapsedRef.current));
+          setVideoDurationSec(dur);
+          setScreen('preview');
+          setRecording(false);
+          setRecordingElapsed(0);
+        };
+
+        mr.start(100); // collect data every 100ms
+
+        // Elapsed counter
+        recordingIntervalRef.current = setInterval(() => {
+          recordingElapsedRef.current += 1;
+          setRecordingElapsed(recordingElapsedRef.current);
+          if (recordingElapsedRef.current >= 10) {
+            if (mediaRecorderRef.current?.state === 'recording') {
+              mediaRecorderRef.current.stop();
+            }
+          }
+        }, 1000);
+
+        return;
+      } catch (err: any) {
+        setError(err.message || 'Unable to start video recording');
+        setRecording(false);
+        return;
+      }
+    }
+
+    // ── Photo mode ──
     if (flashEnabled) {
       if (camera.torchSupported) {
-        // Hardware torch: turn on, wait for it to warm up, capture, turn off
         await camera.setTorch(true);
         await new Promise((r) => setTimeout(r, 400));
       } else {
-        // Screen flash: show white overlay, wait for paint + brightness
         setScreenFlash(true);
         await new Promise<void>((resolve) => {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              setTimeout(resolve, 500);
-            });
-          });
+          requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 500)));
         });
       }
     }
 
     const blob = camera.capturePhoto();
 
-    // Turn off flash/torch after capture
     if (flashEnabled) {
       if (camera.torchSupported) {
-        // Small delay so the photo is fully captured with light, then off
         setTimeout(() => camera.setTorch(false), 100);
       } else {
         setTimeout(() => setScreenFlash(false), 200);
@@ -157,43 +298,91 @@ export default function GuestCamera() {
       setPhotoDescription('');
       setScreen('preview');
     }
-  }, [camera, flashEnabled]);
+  }, [camera, flashEnabled, mode, recording, stopVideoRecording]);
+
+  // ── handleCapture: applies timer delay if set ──────────────────
+  const handleCapture = useCallback(async () => {
+    // If already recording video, stop immediately (no timer)
+    if (mode === 'video' && recording) {
+      stopVideoRecording();
+      return;
+    }
+
+    // If timer is active and a countdown is running, ignore tap
+    if (timerCountdown !== null) return;
+
+    if (timer > 0 && mode === 'photo') {
+      let count = timer;
+      setTimerCountdown(count);
+      timerIntervalRef.current = setInterval(() => {
+        count--;
+        setTimerCountdown(count);
+        if (count <= 0) {
+          if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+          timerIntervalRef.current = null;
+          setTimerCountdown(null);
+          fireCapture();
+        }
+      }, 1000);
+      return;
+    }
+
+    fireCapture();
+  }, [mode, recording, timer, timerCountdown, stopVideoRecording, fireCapture]);
+
+  const cancelTimer = useCallback(() => {
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    setTimerCountdown(null);
+  }, []);
 
   const handleRetake = useCallback(() => {
     setCapturedBlob(null);
     if (capturedUrl) URL.revokeObjectURL(capturedUrl);
+    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    setVideoPreviewUrl(null);
     setCapturedUrl(null);
     setError('');
     setPhotoTitle('');
     setPhotoDescription('');
     setScreen('camera');
-    // Camera stream is still alive since video element stays in DOM.
-    // Just re-assign srcObject and play in case it went stale.
     camera.startCamera();
-  }, [capturedUrl, camera]);
+  }, [capturedUrl, videoPreviewUrl, camera]);
 
   const handleSubmit = async () => {
     if (!capturedBlob || !event.id) return;
     setUploading(true);
     setError('');
-
     try {
-      const data = await api.uploadPhoto(
-        event.id,
-        capturedBlob,
-        photoTitle.trim() || undefined,
-        photoDescription.trim() || undefined
-      );
-      const newPhoto: MyPhoto = {
-        id: data.photo.id,
-        thumbUrl: data.photo.thumbUrl,
-        status: data.photo.status,
-      };
-      const updated = [newPhoto, ...myPhotos];
-      setMyPhotos(updated);
-      saveMyPhotos(event.id, updated);
-      setRemaining(data.remainingPhotos);
-      setScreen('success');
+      if (mode === 'video') {
+        await api.uploadVideo(
+          event.id, capturedBlob, videoDurationSec || 1,
+          photoTitle.trim() || undefined, photoDescription.trim() || undefined,
+        );
+        setScreen('success');
+      } else {
+        const data = await api.uploadPhoto(
+          event.id, capturedBlob,
+          photoTitle.trim() || undefined, photoDescription.trim() || undefined,
+        );
+        const newPhoto: MyPhoto = { id: data.photo.id, thumbUrl: data.photo.thumbUrl, status: data.photo.status };
+        const updated = [newPhoto, ...myPhotos];
+        setMyPhotos(updated);
+        saveMyPhotos(event.id, updated);
+        setRemaining(data.remainingPhotos);
+        setCapturedBlob(null);
+        if (capturedUrl) URL.revokeObjectURL(capturedUrl);
+        setCapturedUrl(null);
+        setPhotoTitle('');
+        setPhotoDescription('');
+        setScreen('camera');
+        camera.startCamera();
+        setShowSuccessToast(true);
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = setTimeout(() => setShowSuccessToast(false), 3000);
+      }
     } catch (err: any) {
       setError(err.message || 'Upload failed');
     } finally {
@@ -204,7 +393,9 @@ export default function GuestCamera() {
   const handleTakeAnother = () => {
     setCapturedBlob(null);
     if (capturedUrl) URL.revokeObjectURL(capturedUrl);
+    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
     setCapturedUrl(null);
+    setVideoPreviewUrl(null);
     setError('');
     setPhotoTitle('');
     setPhotoDescription('');
@@ -221,15 +412,8 @@ export default function GuestCamera() {
       const updated = myPhotos.filter((p) => p.id !== photoId);
       setMyPhotos(updated);
       saveMyPhotos(event.id, updated);
-      // If we're previewing the deleted photo, go back to grid
-      if (previewPhoto?.id === photoId) {
-        setPreviewPhoto(null);
-        setScreen('myPhotos');
-      }
-      // Increment remaining count
-      if (remaining !== null) {
-        setRemaining(remaining + 1);
-      }
+      if (previewPhoto?.id === photoId) { setPreviewPhoto(null); setScreen('myPhotos'); }
+      if (remaining !== null) setRemaining(remaining + 1);
     } catch (err: any) {
       alert(err.message || 'Failed to delete photo');
     } finally {
@@ -237,79 +421,38 @@ export default function GuestCamera() {
     }
   };
 
-  // ─── Render ────────────────────────────────────────────────────
+  const cycleTimer = () => {
+    const idx = TIMER_CYCLE.indexOf(timer);
+    setTimer(TIMER_CYCLE[(idx + 1) % TIMER_CYCLE.length]);
+  };
+
+  // ─── Render ──────────────────────────────────────────────────
 
   return (
-    <div className="fixed inset-0 bg-black flex flex-col">
-      {/* Screen flash overlay — covers entire screen for front camera flash */}
+    <div className="fixed inset-0 overflow-hidden bg-black">
+      {/* Screen flash overlay */}
       {screenFlash && (
-        <div
-          className="fixed inset-0 pointer-events-none"
-          style={{ zIndex: 9999, backgroundColor: '#ffffff', opacity: 1 }}
-        />
+        <div className="fixed inset-0 pointer-events-none bg-white" style={{ zIndex: 9999, opacity: 1 }} />
       )}
-      {/* ══════ CAMERA VIEW — always rendered underneath ══════ */}
-      {/* Top Bar */}
-      <div className="flex-shrink-0 flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))] z-10">
-        <button
-          onClick={() => navigate(`/e/${eventCode}`)}
-          className="w-10 h-10 bg-black/40 backdrop-blur rounded-full flex items-center justify-center"
-        >
-          <X className="w-5 h-5 text-white" />
-        </button>
 
-        <div className="flex items-center gap-2">
-          {guestName && (
-            <span className="text-white/50 text-xs bg-black/30 backdrop-blur px-2.5 py-1 rounded-full truncate max-w-[120px]">
-              {guestName}
-            </span>
-          )}
-          <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur px-2 py-1 rounded-full max-w-[180px]">
-            {event.iconUrl && (
-              <img src={event.iconUrl} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
-            )}
-            <span className="text-white/70 text-sm font-display truncate">
-              {event.title}
-            </span>
-          </div>
-        </div>
-
-        <button
-          onClick={() => {
-            const next = !flashEnabled;
-            setFlashEnabled(next);
-            localStorage.setItem('flashEnabled', String(next));
-          }}
-          className="w-10 h-10 bg-black/40 backdrop-blur rounded-full flex items-center justify-center"
-        >
-          {flashEnabled ? (
-            <Zap className="w-5 h-5" style={{ color: theme.accent }} />
-          ) : (
-            <ZapOff className="w-5 h-5 text-white/60" />
-          )}
-        </button>
-      </div>
-
-      {/* Camera View */}
+      {/* ══════ CAMERA VIDEO ══════ */}
       <div
-        className="flex-1 relative min-h-0 overflow-hidden"
+        className="absolute inset-0"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         onClick={(e) => {
           if (!camera.isReady || camera.error || screen !== 'camera') return;
+          if (showBrightnessSlider) { setShowBrightnessSlider(false); return; }
           const rect = e.currentTarget.getBoundingClientRect();
           const px = e.clientX - rect.left;
           const py = e.clientY - rect.top;
-          // Normalised 0–1 coords for the camera API
           let nx = px / rect.width;
           const ny = py / rect.height;
-          // If front camera is mirrored, flip x
           if (camera.facingMode === 'user') nx = 1 - nx;
-
-          // Show focus ring at tap position (pixel coords)
           setFocusPoint({ x: px, y: py });
           if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
           focusTimerRef.current = setTimeout(() => setFocusPoint(null), 1200);
-
-          // Trigger camera focus
           camera.focusAtPoint(nx, ny);
         }}
       >
@@ -320,40 +463,49 @@ export default function GuestCamera() {
           muted
           className={`w-full h-full object-cover ${camera.error ? 'hidden' : ''}`}
           style={{
-            transform: camera.facingMode === 'user' ? 'scaleX(-1)' : 'none',
+            transform: `scaleX(${camera.facingMode === 'user' ? -1 : 1}) scale(${cssZoom})`,
+            filter: `brightness(${brightness}%)`,
+            transformOrigin: 'center center',
           }}
         />
+
+        {/* Viewfinder grid */}
+        {!camera.error && (
+          <div className="absolute inset-0 viewfinder-grid opacity-30 pointer-events-none" />
+        )}
+
+        {/* Corner brackets */}
+        {!camera.error && (
+          <>
+            <div className="absolute top-20 left-6 w-8 h-8 border-t-2 border-l-2 border-primary/40 pointer-events-none" />
+            <div className="absolute top-20 right-6 w-8 h-8 border-t-2 border-r-2 border-primary/40 pointer-events-none" />
+            <div className="absolute bottom-44 left-6 w-8 h-8 border-b-2 border-l-2 border-primary/40 pointer-events-none" />
+            <div className="absolute bottom-44 right-6 w-8 h-8 border-b-2 border-r-2 border-primary/40 pointer-events-none" />
+          </>
+        )}
 
         {/* Tap-to-focus ring */}
         {focusPoint && (
           <div
             className="absolute pointer-events-none"
-            style={{
-              left: focusPoint.x - 30,
-              top: focusPoint.y - 30,
-              width: 60,
-              height: 60,
-            }}
+            style={{ left: focusPoint.x - 30, top: focusPoint.y - 30, width: 60, height: 60 }}
           >
             <div
-              className="w-full h-full rounded-full border-2"
-              style={{
-                borderColor: theme.accent,
-                animation: 'focusRing 0.6s ease-out forwards',
-              }}
+              className="w-full h-full rounded-full border-2 border-primary"
+              style={{ animation: 'focusRing 0.6s ease-out forwards' }}
             />
           </div>
         )}
 
-        {/* Screen flash handled at root level below */}
+        {/* Camera error */}
         {camera.error && (
-          <div className="absolute inset-0 flex items-center justify-center p-6">
-            <div className="text-center text-white">
-              <Camera className="w-16 h-16 text-white/30 mx-auto mb-4" />
-              <p className="text-white/70 mb-4">{camera.error}</p>
+          <div className="absolute inset-0 flex items-center justify-center p-6 bg-surface">
+            <div className="text-center">
+              <Camera className="w-16 h-16 text-on-surface-variant/30 mx-auto mb-4" />
+              <p className="text-on-surface-variant mb-4 text-sm">{camera.error}</p>
               <button
                 onClick={camera.startCamera}
-                className="px-6 py-3 bg-white/10 rounded-full text-white font-medium"
+                className="px-6 py-3 bg-surface-container-highest rounded-full text-on-surface font-medium text-sm"
               >
                 Try Again
               </button>
@@ -365,380 +517,497 @@ export default function GuestCamera() {
       {/* Hidden canvas for capture */}
       <canvas ref={camera.canvasRef} className="hidden" />
 
-      {/* My Photos strip */}
-      {myPhotos.length > 0 && screen === 'camera' && (
-        <div className="flex-shrink-0 px-4 pt-3 bg-black">
-          <button
-            onClick={() => { refreshPhotoStatuses(); setScreen('myPhotos'); }}
-            className="flex items-center gap-2 w-full"
+      {/* ══════ TIMER COUNTDOWN OVERLAY ══════ */}
+      {timerCountdown !== null && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
+          <div
+            className="text-[160px] font-extrabold text-white leading-none"
+            style={{ textShadow: '0 0 60px rgba(193,156,255,0.8)', fontFamily: '"Plus Jakarta Sans", sans-serif' }}
           >
-            <div className="flex -space-x-2">
-              {myPhotos.slice(0, 4).map((photo, i) => (
-                <div
-                  key={photo.id}
-                  className="w-10 h-10 rounded-lg overflow-hidden border-2 border-black flex-shrink-0"
-                  style={{ zIndex: 4 - i }}
-                >
-                  <img src={photo.thumbUrl} alt="" className="w-full h-full object-cover" />
-                </div>
-              ))}
-            </div>
-            <span className="text-xs font-medium" style={{ color: `${theme.accent}B3` }}>
-              My Photos ({myPhotos.length})
-            </span>
+            {timerCountdown}
+          </div>
+          <button
+            onClick={cancelTimer}
+            className="mt-6 px-5 py-2 rounded-full bg-black/50 text-white text-sm font-medium pointer-events-auto"
+          >
+            Cancel
           </button>
         </div>
       )}
 
-      {/* Bottom Controls */}
+      {/* ══════ TOP HEADER BAR ══════ */}
       {screen === 'camera' && (
-        <>
-          {uploadsClosed && (
-            <div className="flex-shrink-0 mx-4 mb-2 p-4 rounded-xl bg-amber-500/20 border border-amber-400/30 text-center">
-              <p className="text-amber-100 text-sm font-medium">
-                Photo uploads have closed for this event.
-              </p>
-              <p className="text-amber-200/80 text-xs mt-1">
-                You can still view your photos and the gallery.
-              </p>
+        <div className="fixed top-0 w-full z-50 flex justify-between items-center px-6 py-6 bg-gradient-to-b from-black/80 to-transparent">
+          {/* Guest identity */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center flex-shrink-0">
+              <User className="w-5 h-5 text-on-surface-variant" />
             </div>
-          )}
-          <div className="flex-shrink-0 px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] flex items-center justify-center gap-10 bg-black">
-          <button
-            onClick={() => event.guestGalleryEnabled && navigate(`/e/${eventCode}/gallery`)}
-            className={`flex flex-col items-center gap-1 ${
-              !event.guestGalleryEnabled ? 'opacity-30' : ''
-            }`}
-            disabled={!event.guestGalleryEnabled}
-          >
-            <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
-              <Images className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-white/50 text-[10px]">Gallery</span>
-          </button>
-
-          <button
-            onClick={handleCapture}
-            disabled={!camera.isReady || uploadsClosed}
-            className="w-[72px] h-[72px] rounded-full border-[4px] border-white flex items-center justify-center
-            active:scale-90 transition-transform disabled:opacity-30 flex-shrink-0"
-          >
-            <div className="w-[60px] h-[60px] bg-white rounded-full active:bg-white/80 transition-colors" />
-          </button>
-
-          <button
-            onClick={camera.switchCamera}
-            className="flex flex-col items-center gap-1"
-          >
-            <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center">
-              <SwitchCamera className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-white/50 text-[10px]">Flip</span>
-          </button>
-        </div>
-        </>
-      )}
-
-      {/* ══════ PREVIEW OVERLAY ══════ */}
-      {screen === 'preview' && capturedUrl && (
-        <div className="absolute inset-0 bg-black flex flex-col z-40">
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-            {/* Photo preview */}
-            <div className="flex-shrink-0 flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-              <img
-                src={capturedUrl}
-                alt="Captured"
-                className="max-w-full max-h-[45vh] object-contain rounded-2xl"
-              />
-            </div>
-
-            {/* Title & Description fields */}
-            <div className="flex-shrink-0 px-6 space-y-3">
-              <div className="relative">
-                <Type className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
-                <input
-                  type="text"
-                  value={photoTitle}
-                  onChange={(e) => setPhotoTitle(e.target.value)}
-                  placeholder="Add a title (optional)"
-                  maxLength={100}
-                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/10 border border-white/10
-                  text-white placeholder-white/30 text-sm focus:outline-none focus:ring-2 focus:ring-white/30"
-                />
-              </div>
-              <div className="relative">
-                <FileText className="absolute left-3 top-3 w-4 h-4 text-white/30" />
-                <textarea
-                  value={photoDescription}
-                  onChange={(e) => setPhotoDescription(e.target.value)}
-                  placeholder="Add a description (optional)"
-                  maxLength={500}
-                  rows={2}
-                  className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/10 border border-white/10
-                  text-white placeholder-white/30 text-sm focus:outline-none focus:ring-2 focus:ring-white/30 resize-none"
-                />
-              </div>
+            <div>
+              <p className="font-headline font-bold text-white text-sm leading-tight">{guestName || 'Guest'}</p>
+              <LogoIcon size={12} className="opacity-40" />
             </div>
           </div>
 
-          {error && (
-            <div className="mx-4 mb-2 text-red-200 text-sm bg-red-500/30 px-4 py-2 rounded-xl text-center">
-              {error}
+          {/* Recording indicator / photo count */}
+          {recording ? (
+            <div className="flex items-center gap-2 bg-red-600/80 backdrop-blur-md px-4 py-2 rounded-full">
+              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+              <span className="text-white font-bold text-sm">{recordingElapsed}s</span>
+              <span className="text-white/60 text-xs">/ 10s</span>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center">
+              <div className="bg-surface-container-highest/60 backdrop-blur-md px-4 py-2 rounded-full border border-outline-variant/20">
+                <span className="font-headline font-extrabold text-primary text-lg leading-none">
+                  {remaining !== null ? remaining : myPhotos.length > 0 ? myPhotos.length : '∞'}
+                </span>
+              </div>
+              <p className="text-white/40 text-[8px] tracking-widest mt-1 uppercase">
+                {remaining !== null ? 'Roll Remaining' : 'Shots Taken'}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════ SIDE CONTROLS ══════ */}
+      {screen === 'camera' && (
+        <div className="fixed right-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-4">
+          {/* Flash */}
+          <button
+            onClick={() => {
+              const next = !flashEnabled;
+              setFlashEnabled(next);
+              localStorage.setItem('flashEnabled', String(next));
+            }}
+            className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-outline-variant/20 flex items-center justify-center"
+          >
+            {flashEnabled ? (
+              <Zap className="w-4 h-4 text-primary" />
+            ) : (
+              <ZapOff className="w-4 h-4 text-white/60" />
+            )}
+          </button>
+
+          {/* Brightness */}
+          <div className="relative">
+            <button
+              onClick={() => setShowBrightnessSlider((v) => !v)}
+              className={`w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-outline-variant/20 flex items-center justify-center ${
+                brightness !== 100 ? 'border-primary/60' : ''
+              }`}
+            >
+              <Sun className={`w-4 h-4 ${brightness !== 100 ? 'text-primary' : 'text-white/60'}`} />
+            </button>
+            {showBrightnessSlider && (
+              <div className="absolute right-12 top-1/2 -translate-y-1/2 flex items-center gap-2 bg-black/70 backdrop-blur-md rounded-2xl px-4 py-3 border border-outline-variant/20 w-48">
+                <Sun className="w-3 h-3 text-white/40 flex-shrink-0" />
+                <input
+                  type="range"
+                  min={50}
+                  max={200}
+                  step={5}
+                  value={brightness}
+                  onChange={(e) => setBrightness(Number(e.target.value))}
+                  className="flex-1 accent-primary h-1"
+                />
+                <Sun className="w-4 h-4 text-white/80 flex-shrink-0" />
+              </div>
+            )}
+          </div>
+
+          {/* Timer */}
+          <button
+            onClick={cycleTimer}
+            className={`w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-outline-variant/20 flex items-center justify-center ${
+              timer > 0 ? 'border-primary/60' : ''
+            }`}
+          >
+            {timer > 0 ? (
+              <span className="text-primary text-xs font-bold leading-none">{timer}s</span>
+            ) : (
+              <Timer className="w-4 h-4 text-white/60" />
+            )}
+          </button>
+
+          {/* Zoom level indicator (if zoomed) */}
+          {(cssZoom > 1.05 || camera.currentZoom > 1.05) && (
+            <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-outline-variant/20 flex items-center justify-center">
+              <span className="text-white/80 text-[10px] font-bold leading-none">
+                {(camera.currentZoom > 1.05 ? camera.currentZoom : cssZoom).toFixed(1)}×
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════ SUCCESS TOAST ══════ */}
+      {showSuccessToast && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 animate-slide-in">
+          <div className="bg-tertiary-container/90 backdrop-blur-xl text-white px-6 py-3 rounded-full flex items-center gap-2 shadow-lg">
+            <CheckCircle className="w-4 h-4 text-white" />
+            <span className="text-sm font-medium">Your photo is live!</span>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ BOTTOM CONTROLS ══════ */}
+      {screen === 'camera' && (
+        <div className="fixed bottom-0 w-full z-50">
+          <div className="absolute bottom-0 w-full h-64 bg-gradient-to-t from-black to-transparent -z-10" />
+
+          {uploadsClosed && (
+            <div className="mx-4 mb-3 p-3 rounded-xl bg-amber-500/20 border border-amber-400/30 text-center">
+              <p className="text-amber-100 text-xs font-medium">Photo uploads have closed for this event.</p>
             </div>
           )}
 
-          <div className="flex-shrink-0 p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] flex items-center justify-center gap-6">
+          {/* Controls row */}
+          <div className="flex justify-around items-center px-8 pb-12 pt-4">
+            {/* Switch camera */}
             <button
-              onClick={handleRetake}
-              disabled={uploading}
-              className="flex flex-col items-center gap-1"
+              onClick={camera.switchCamera}
+              disabled={recording}
+              className="w-14 h-14 rounded-full bg-surface-container-highest/40 backdrop-blur-xl border border-outline-variant/20 flex items-center justify-center disabled:opacity-40"
             >
-              <div className="w-14 h-14 bg-white/10 rounded-full flex items-center justify-center">
-                <RotateCcw className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-white/70 text-xs">Retake</span>
+              <SwitchCamera className="w-6 h-6 text-white" />
             </button>
 
-            {uploadsClosed && (
-              <p className="text-amber-200 text-sm">Uploads have closed for this event.</p>
-            )}
-            <button
-              onClick={handleSubmit}
-              disabled={uploading || uploadsClosed}
-              className="flex flex-col items-center gap-1"
-            >
-              <div className="w-20 h-20 rounded-full flex items-center justify-center shadow-xl transition-colors" style={{ backgroundColor: theme.buttonBg }}>
-                {uploading ? (
-                  <Loader className="w-8 h-8 animate-spin" style={{ color: theme.buttonText }} />
+            {/* Capture / Stop button */}
+            <div className="relative flex items-center justify-center">
+              <div className={`absolute -inset-4 rounded-full blur-2xl ${recording ? 'bg-red-500/30' : 'bg-primary/20'}`} />
+              <button
+                onClick={handleCapture}
+                disabled={(!camera.isReady || uploadsClosed) && !recording}
+                className={`relative w-24 h-24 rounded-full border-[6px] transition-transform duration-150 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed ${
+                  recording
+                    ? 'bg-red-600 border-white/20 shadow-[0_0_40px_rgba(239,68,68,0.5)] hover:scale-105 active:scale-95'
+                    : 'kinetic-gradient border-white/20 shadow-[0_0_40px_rgba(193,156,255,0.4)] hover:scale-105 active:scale-95'
+                }`}
+              >
+                {recording ? (
+                  <Square className="w-8 h-8 text-white fill-white" />
+                ) : mode === 'video' ? (
+                  <div className="w-7 h-7 rounded-sm bg-white/90" />
                 ) : (
-                  <Check className="w-8 h-8" style={{ color: theme.buttonText }} />
+                  <Camera className="w-8 h-8 text-white" />
                 )}
-              </div>
-              <span className="text-white/70 text-xs">
-                {uploading ? 'Uploading...' : 'Submit'}
-              </span>
+              </button>
+            </div>
+
+            {/* Gallery / My Photos */}
+            <button
+              onClick={() => {
+                if (myPhotos.length > 0) {
+                  refreshPhotoStatuses();
+                  setScreen('myPhotos');
+                } else if (event.guestGalleryEnabled) {
+                  navigate(`/e/${eventCode}/gallery`);
+                }
+              }}
+              className="w-14 h-14 rounded-full bg-surface-container-highest/40 backdrop-blur-xl border border-outline-variant/20 overflow-hidden flex items-center justify-center"
+            >
+              {myPhotos.length > 0 ? (
+                <img src={myPhotos[0].thumbUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <Images className="w-6 h-6 text-white/60" />
+              )}
             </button>
+          </div>
+
+          {/* Mode selector */}
+          <div className="flex justify-center pb-6">
+            <div className="flex items-center gap-6 px-4 py-2 bg-surface-container-low/40 backdrop-blur-sm rounded-full">
+              {(['video', 'photo'] as CameraMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => !recording && setMode(m)}
+                  disabled={recording}
+                  className={`flex items-center gap-1.5 text-xs font-medium transition-colors duration-200 disabled:opacity-40 ${
+                    mode === m ? 'text-secondary' : 'text-white/40'
+                  }`}
+                >
+                  {mode === m && (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full bg-secondary inline-block"
+                      style={{ animation: 'pulse-dot 1.5s ease-in-out infinite' }}
+                    />
+                  )}
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════ PREVIEW OVERLAY ══════ */}
+      {screen === 'preview' && (capturedUrl || videoPreviewUrl) && (
+        <div className="fixed inset-0 bg-black z-50 flex flex-col">
+          {/* Media preview */}
+          <div className="flex-1 flex items-center justify-center p-4 pt-[max(1rem,env(safe-area-inset-top))] min-h-0">
+            {mode === 'video' && videoPreviewUrl ? (
+              <video
+                src={videoPreviewUrl}
+                controls
+                autoPlay
+                loop
+                playsInline
+                className="max-w-full max-h-full rounded-2xl"
+                style={{ maxHeight: '60vh' }}
+              />
+            ) : capturedUrl ? (
+              <img
+                src={capturedUrl}
+                alt="Captured"
+                className="max-w-full max-h-full object-contain rounded-2xl"
+              />
+            ) : null}
+          </div>
+
+          {/* Bottom sheet */}
+          <div className="flex-shrink-0 bg-surface-container-low/90 backdrop-blur-xl rounded-t-3xl p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+            {/* Title input */}
+            <div className="relative mb-4">
+              <Type className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40" />
+              <input
+                type="text"
+                value={photoTitle}
+                onChange={(e) => setPhotoTitle(e.target.value)}
+                placeholder="Add a title (optional)"
+                maxLength={100}
+                className="w-full pl-10 pr-4 py-3 bg-transparent border-0 border-b border-outline-variant/40 text-on-surface placeholder:text-on-surface-variant/40 text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+
+            {/* Description */}
+            <div className="relative mb-6">
+              <FileText className="absolute left-3 top-3 w-4 h-4 text-on-surface-variant/40" />
+              <textarea
+                value={photoDescription}
+                onChange={(e) => setPhotoDescription(e.target.value)}
+                placeholder="Add a description (optional)"
+                maxLength={500}
+                rows={2}
+                className="w-full pl-10 pr-4 py-3 bg-transparent border-0 border-b border-outline-variant/40 text-on-surface placeholder:text-on-surface-variant/40 text-sm focus:outline-none focus:border-primary transition-colors resize-none"
+              />
+            </div>
+
+            {error && (
+              <div className="mb-4 text-error text-sm bg-error/10 px-4 py-2 rounded-xl border border-error/20 text-center">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleRetake}
+                disabled={uploading}
+                className="flex-1 py-4 bg-surface-container-highest rounded-xl text-on-surface font-headline font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-all"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Retake
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={uploading || uploadsClosed}
+                className="flex-1 py-4 kinetic-gradient shutter-glow rounded-xl text-white font-headline font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-all"
+              >
+                {uploading ? (
+                  <><Loader className="w-4 h-4 animate-spin" /> Uploading...</>
+                ) : (
+                  <><Check className="w-4 h-4" /> Upload</>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* ══════ SUCCESS OVERLAY ══════ */}
       {screen === 'success' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-white z-40" style={{ background: theme.bgGradient }}>
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-48 h-48 rounded-full blur-3xl" style={{ backgroundColor: `${theme.accent}1A` }} />
-          </div>
-
-          <div className="relative z-10 flex flex-col items-center w-full max-w-sm">
-            <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-lg" style={{ backgroundColor: theme.buttonBg }}>
-              <Check className="w-10 h-10" style={{ color: theme.buttonText }} />
+        <div className="fixed inset-0 bg-surface flex flex-col items-center justify-center p-6 z-50">
+          <div className="relative z-10 flex flex-col items-center w-full max-w-sm text-center">
+            <div className="w-20 h-20 rounded-full kinetic-gradient shutter-glow flex items-center justify-center mb-6">
+              <Check className="w-10 h-10 text-white" />
             </div>
-            <h1 className="font-display text-3xl text-white mb-2">Photo Submitted!</h1>
-            <p className="text-white/50 mb-8 text-center font-sans text-sm">
+            <h1 className="font-headline font-extrabold text-3xl text-on-surface mb-2">Submitted!</h1>
+            <p className="text-on-surface-variant mb-8 text-sm">
               {remaining !== null && remaining > 0
                 ? `You can take ${remaining} more photo${remaining === 1 ? '' : 's'}`
                 : remaining === 0
                 ? "You've reached the photo limit"
-                : 'Your photo has been uploaded successfully'}
+                : 'Your content has been uploaded successfully'}
             </p>
-
             <div className="w-full space-y-3">
-              {remaining !== null && remaining > 0 && (
+              {(remaining === null || remaining > 0) && (
                 <button
                   onClick={handleTakeAnother}
-                  className="w-full py-4 font-bold rounded-2xl flex items-center justify-center gap-2 shadow-lg transition-colors"
-                  style={{ backgroundColor: theme.buttonBg, color: theme.buttonText }}
+                  className="w-full py-4 kinetic-gradient shutter-glow font-headline font-bold rounded-xl flex items-center justify-center gap-2 text-white active:scale-95 transition-all"
                 >
-                  <Camera className="w-5 h-5" />
-                  Take Another
+                  <Camera className="w-5 h-5" /> Take Another
                 </button>
               )}
-
               {myPhotos.length > 0 && (
                 <button
                   onClick={() => setScreen('myPhotos')}
-                  className="w-full py-4 bg-white/8 backdrop-blur text-white font-semibold rounded-2xl flex items-center justify-center gap-2 border hover:bg-white/12 transition-colors"
-                  style={{ borderColor: theme.inputBorder }}
+                  className="w-full py-4 bg-surface-container-highest text-on-surface font-headline font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
                 >
-                  <User className="w-5 h-5" />
-                  My Photos ({myPhotos.length})
+                  <User className="w-5 h-5" /> My Photos ({myPhotos.length})
                 </button>
               )}
-
               {event.guestGalleryEnabled && (
                 <button
                   onClick={() => navigate(`/e/${eventCode}/gallery`)}
-                  className="w-full py-4 bg-white/5 backdrop-blur text-white/70 font-semibold rounded-2xl flex items-center justify-center gap-2 border border-white/10 hover:bg-white/8 transition-colors"
+                  className="w-full py-4 bg-surface-container-low text-on-surface-variant font-headline font-bold rounded-xl flex items-center justify-center gap-2 border border-outline-variant/20 active:scale-95 transition-all"
                 >
-                  <Images className="w-5 h-5" />
-                  View Event Gallery
+                  <Images className="w-5 h-5" /> View Event Gallery
                 </button>
               )}
             </div>
-
-            <p className="text-white/25 text-xs mt-6 font-sans">Scan. Capture. Celebrate.</p>
-            <Footer className="mt-4" />
+            <LogoIcon size={14} className="mx-auto mt-6 opacity-30" />
           </div>
         </div>
       )}
 
-      {/* ══════ MY PHOTOS OVERLAY ══════ */}
+      {/* ══════ MY PHOTOS SHEET ══════ */}
       {screen === 'myPhotos' && (
-        <div className="absolute inset-0 bg-black z-40 flex flex-col">
-          <div className="flex-shrink-0 flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))]">
-            <button
-              onClick={() => setScreen('camera')}
-              className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center"
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-            <div className="text-white font-display text-xl flex items-center gap-2">
-              <User className="w-4 h-4" />
-              My Photos ({myPhotos.length})
+        <div className="fixed inset-0 z-50 flex flex-col">
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={() => setScreen('camera')} />
+          <div className="bg-surface-container-low rounded-t-3xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-outline-variant/20 flex-shrink-0">
+              <h2 className="font-headline font-bold text-on-surface text-lg flex items-center gap-2">
+                <User className="w-5 h-5 text-primary" />
+                My Photos ({myPhotos.length})
+              </h2>
+              <button
+                onClick={() => setScreen('camera')}
+                className="w-9 h-9 rounded-full bg-surface-container-highest flex items-center justify-center"
+              >
+                <X className="w-4 h-4 text-on-surface" />
+              </button>
             </div>
-            <div className="w-10" />
-          </div>
 
-          <div className="flex-1 overflow-y-auto p-2 min-h-0">
-            {myPhotos.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-white/50">
-                <Camera className="w-12 h-12 mb-3 opacity-50" />
-                <p>No photos yet. Start capturing!</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-1.5">
-                {myPhotos.map((photo) => (
-                  <div
-                    key={photo.id}
-                    className={`aspect-square rounded-xl overflow-hidden bg-gray-800 relative ${
-                      deleting === photo.id ? 'opacity-40 pointer-events-none' : ''
-                    }`}
-                  >
-                    <button
-                      onClick={() => {
-                        setPreviewPhoto(photo);
-                        setScreen('photoPreview');
-                      }}
-                      className="w-full h-full"
+            <div className="flex-1 overflow-y-auto p-4 min-h-0">
+              {myPhotos.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-on-surface-variant">
+                  <Camera className="w-12 h-12 mb-3 opacity-30" />
+                  <p className="text-sm">No photos yet. Start capturing!</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {myPhotos.map((photo) => (
+                    <div
+                      key={photo.id}
+                      className={`aspect-square rounded-xl overflow-hidden bg-surface-container-highest relative ${
+                        deleting === photo.id ? 'opacity-40 pointer-events-none' : ''
+                      }`}
                     >
-                      <img src={photo.thumbUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    </button>
-                    {/* Status badge */}
-                    {photo.status === 'PENDING' && (
-                      <div className="absolute top-1 left-1 bg-yellow-500 text-[9px] text-white px-1.5 py-0.5 rounded-full font-medium">
-                        Pending
-                      </div>
-                    )}
-                    {photo.status === 'APPROVED' && (
-                      <div className="absolute top-1 left-1 bg-green-500 text-[9px] text-white px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5">
-                        <CheckCircle className="w-2.5 h-2.5" />
-                        Approved
-                      </div>
-                    )}
-                    {photo.status === 'REJECTED' && (
-                      <div className="absolute top-1 left-1 bg-red-500 text-[9px] text-white px-1.5 py-0.5 rounded-full font-medium flex items-center gap-0.5">
-                        <XCircle className="w-2.5 h-2.5" />
-                        Rejected
-                      </div>
-                    )}
-                    {/* Delete button — only for pending photos */}
-                    {photo.status === 'PENDING' && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleDeletePhoto(photo.id); }}
-                        className="absolute top-1 right-1 w-6 h-6 bg-red-500/80 backdrop-blur rounded-full flex items-center justify-center"
-                        title="Delete"
+                        onClick={() => { setPreviewPhoto(photo); setScreen('photoPreview'); }}
+                        className="w-full h-full"
                       >
-                        {deleting === photo.id ? (
-                          <Loader className="w-3 h-3 text-white animate-spin" />
-                        ) : (
-                          <Trash2 className="w-3 h-3 text-white" />
-                        )}
+                        <img src={photo.thumbUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                       </button>
-                    )}
-                    {deleting === photo.id && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                        <Loader className="w-6 h-6 text-white animate-spin" />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                      {photo.status === 'PENDING' && (
+                        <div className="absolute top-1.5 left-1.5">
+                          <span className="badge-pending text-[8px]">Pending</span>
+                        </div>
+                      )}
+                      {photo.status === 'APPROVED' && (
+                        <div className="absolute top-1.5 left-1.5">
+                          <span className="badge-approved text-[8px] flex items-center gap-0.5">
+                            <CheckCircle className="w-2.5 h-2.5" /> Live
+                          </span>
+                        </div>
+                      )}
+                      {photo.status === 'REJECTED' && (
+                        <div className="absolute top-1.5 left-1.5">
+                          <span className="badge-rejected text-[8px] flex items-center gap-0.5">
+                            <XCircle className="w-2.5 h-2.5" /> Rejected
+                          </span>
+                        </div>
+                      )}
+                      {photo.status === 'PENDING' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeletePhoto(photo.id); }}
+                          className="absolute top-1.5 right-1.5 w-6 h-6 bg-error/80 backdrop-blur rounded-full flex items-center justify-center"
+                        >
+                          {deleting === photo.id ? (
+                            <Loader className="w-3 h-3 text-white animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3 text-white" />
+                          )}
+                        </button>
+                      )}
+                      {deleting === photo.id && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                          <Loader className="w-6 h-6 text-white animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
-          <div className="flex-shrink-0 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <button
-              onClick={() => { setScreen('camera'); camera.startCamera(); }}
-              className="w-full py-4 text-white font-bold rounded-2xl flex items-center justify-center gap-2"
-              style={{ backgroundColor: theme.headerBg }}
-            >
-              <Camera className="w-5 h-5" />
-              Back to Camera
-            </button>
+            <div className="flex-shrink-0 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 border-t border-outline-variant/20">
+              <button
+                onClick={() => { setScreen('camera'); camera.startCamera(); }}
+                className="w-full py-4 kinetic-gradient shutter-glow font-headline font-bold text-white rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
+              >
+                <Camera className="w-5 h-5" /> Back to Camera
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* ══════ FULL-SCREEN PHOTO PREVIEW ══════ */}
       {screen === 'photoPreview' && previewPhoto && (
-        <div
-          className="absolute inset-0 bg-black z-50 flex flex-col"
-          onClick={() => setScreen('myPhotos')}
-        >
-          {/* Top bar */}
-          <div className="flex-shrink-0 flex items-center justify-between p-4 pt-[max(1rem,env(safe-area-inset-top))]">
+        <div className="fixed inset-0 bg-black z-50 flex flex-col" onClick={() => setScreen('myPhotos')}>
+          <div
+            className="flex-shrink-0 flex items-center justify-between px-4 py-4 pt-[max(1rem,env(safe-area-inset-top))]"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
-              className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center"
-              onClick={(e) => { e.stopPropagation(); setScreen('myPhotos'); }}
+              className="w-10 h-10 bg-surface-container-highest/60 backdrop-blur rounded-full flex items-center justify-center"
+              onClick={() => setScreen('myPhotos')}
             >
               <X className="w-5 h-5 text-white" />
             </button>
-
             <div className="flex items-center gap-2">
-              {previewPhoto.status === 'PENDING' && (
-                <span className="bg-yellow-500 text-white text-xs px-2.5 py-1 rounded-full font-medium">
-                  Pending
-                </span>
-              )}
+              {previewPhoto.status === 'PENDING' && <span className="badge-pending">Pending Review</span>}
               {previewPhoto.status === 'APPROVED' && (
-                <span className="bg-green-500 text-white text-xs px-2.5 py-1 rounded-full font-medium flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3" />
-                  Approved
+                <span className="badge-approved flex items-center gap-1">
+                  <CheckCircle className="w-3 h-3" /> Approved
                 </span>
               )}
               {previewPhoto.status === 'REJECTED' && (
-                <span className="bg-red-500 text-white text-xs px-2.5 py-1 rounded-full font-medium flex items-center gap-1">
-                  <XCircle className="w-3 h-3" />
-                  Rejected
+                <span className="badge-rejected flex items-center gap-1">
+                  <XCircle className="w-3 h-3" /> Rejected
                 </span>
               )}
             </div>
-
             {previewPhoto.status === 'PENDING' ? (
               <button
-                className="w-10 h-10 bg-red-500/70 rounded-full flex items-center justify-center"
+                className="w-10 h-10 bg-error/70 backdrop-blur rounded-full flex items-center justify-center"
                 onClick={(e) => { e.stopPropagation(); handleDeletePhoto(previewPhoto.id); }}
                 disabled={deleting === previewPhoto.id}
               >
                 {deleting === previewPhoto.id ? (
-                  <Loader className="w-5 h-5 text-white animate-spin" />
+                  <Loader className="w-4 h-4 text-white animate-spin" />
                 ) : (
-                  <Trash2 className="w-5 h-5 text-white" />
+                  <Trash2 className="w-4 h-4 text-white" />
                 )}
               </button>
             ) : (
-              <div className="w-10" />
+              <div className="w-10 h-10" />
             )}
           </div>
-
-          {/* Image */}
-          <div className="flex-1 flex items-center justify-center min-h-0 p-4">
-            <img
-              src={previewPhoto.thumbUrl}
-              alt=""
-              className="max-w-full max-h-full object-contain"
-              onClick={(e) => e.stopPropagation()}
-            />
+          <div className="flex-1 flex items-center justify-center p-4 min-h-0">
+            <img src={previewPhoto.thumbUrl} alt="" className="max-w-full max-h-full object-contain rounded-2xl" />
           </div>
         </div>
       )}

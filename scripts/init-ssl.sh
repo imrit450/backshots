@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-time SSL setup with Let's Encrypt
-# Run on VPS: bash scripts/init-ssl.sh backshots.zilware.mu
+# Run on VPS: bash scripts/init-ssl.sh lumora.zilware.mu
 #
 # Prerequisites:
 # 1. Domain DNS A record points to this server's IP
@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-DOMAIN="${1:?Usage: $0 <domain> e.g. backshots.zilware.mu}"
+DOMAIN="${1:?Usage: $0 <domain> e.g. lumora.zilware.mu}"
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "── SSL setup for $DOMAIN ─────────────────────────"

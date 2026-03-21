@@ -18,7 +18,7 @@ async function main() {
   // Create demo host
   const host = await prisma.host.create({
     data: {
-      email: 'demo@backshots.app',
+      email: 'demo@lumora.app',
       passwordHash: await bcrypt.hash('demo1234', 12),
       displayName: 'Demo Host',
     },
@@ -70,7 +70,7 @@ async function main() {
   console.log(`Created ${guests.length} guest sessions`);
 
   console.log('\nSeed complete!');
-  console.log('Login credentials: demo@backshots.app / demo1234');
+  console.log('Login credentials: demo@lumora.app / demo1234');
 }
 
 main()

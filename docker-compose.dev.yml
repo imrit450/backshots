@@ -10,9 +10,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: backshots
-      POSTGRES_PASSWORD: backshots_dev
-      POSTGRES_DB: backshots
+      POSTGRES_USER: lumora
+      POSTGRES_PASSWORD: lumora_dev
+      POSTGRES_DB: lumora
     volumes:
       - pgdata_dev:/var/lib/postgresql/data
 

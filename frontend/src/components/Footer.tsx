@@ -12,7 +12,7 @@ export default function Footer({ className = '', variant = 'dark' }: FooterProps
 
   return (
     <footer className={`text-center text-xs font-sans ${textClass} ${className}`}>
-      <p>© {new Date().getFullYear()} Backshots. Developed and built by{' '}
+      <p>© {new Date().getFullYear()} Lumora. Developed and built by{' '}
         <a
           href="https://zilware.mu"
           target="_blank"

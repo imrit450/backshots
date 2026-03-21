@@ -5,6 +5,10 @@ import { prisma } from '../index';
 import { authenticateAdmin } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { PLAN_IDS } from '../config/plans';
+import { config } from '../config';
+import { S3Client, ListObjectsV2Command, HeadBucketCommand } from '@aws-sdk/client-s3';
+import { getRuntimeStorageConfig, setRuntimeStorageConfig } from '../services/runtimeConfig';
+import { resetStorage } from '../services/storage';
 
 const router = Router();
 
@@ -125,6 +129,208 @@ router.delete('/events/:eventId', authenticateAdmin, asyncHandler(async (req: Re
   await prisma.event.delete({ where: { id: event.id } });
 
   res.json({ success: true });
+}));
+
+function requireS3() {
+  const runtime = getRuntimeStorageConfig();
+  if (runtime.storageType !== 's3' || !runtime.s3?.bucket || !runtime.s3.publicUrl) {
+    throw new AppError('S3 storage is not enabled', 400);
+  }
+  return runtime.s3;
+}
+
+function makeS3Client(s3: any) {
+  return new S3Client({
+    region: s3.region || 'us-east-1',
+    ...(s3.endpoint && { endpoint: s3.endpoint }),
+    credentials: s3.accessKeyId
+      ? { accessKeyId: s3.accessKeyId, secretAccessKey: s3.secretAccessKey! }
+      : undefined,
+    forcePathStyle: s3.forcePathStyle,
+  });
+}
+
+// GET /v1/admin/storage/health - Verify S3 connectivity and config
+router.get('/storage/health', authenticateAdmin, asyncHandler(async (_req: Request, res: Response) => {
+  try {
+    const s3 = requireS3();
+    const client = makeS3Client(s3);
+
+    await client.send(new HeadBucketCommand({ Bucket: s3.bucket }));
+    const list = await client.send(new ListObjectsV2Command({ Bucket: s3.bucket, MaxKeys: 1 }));
+
+    res.json({
+      ok: true,
+      storageType: 's3',
+      bucket: s3.bucket,
+      region: s3.region,
+      endpoint: s3.endpoint || null,
+      publicUrl: s3.publicUrl,
+      sampleKey: list.Contents?.[0]?.Key || null,
+    });
+  } catch (err: any) {
+    res.status(200).json({
+      ok: false,
+      storageType: getRuntimeStorageConfig().storageType,
+      error: err?.message || 'Failed to check storage',
+    });
+  }
+}));
+
+// GET /v1/admin/storage/config - Get current storage config (secrets masked)
+router.get('/storage/config', authenticateAdmin, asyncHandler(async (_req: Request, res: Response) => {
+  const runtime = getRuntimeStorageConfig();
+  res.json({
+    storageType: runtime.storageType,
+    s3: runtime.s3
+      ? {
+          bucket: runtime.s3.bucket,
+          region: runtime.s3.region,
+          endpoint: runtime.s3.endpoint || '',
+          accessKeyId: runtime.s3.accessKeyId || '',
+          secretAccessKey: runtime.s3.secretAccessKey ? '***' : '',
+          publicUrl: runtime.s3.publicUrl,
+          forcePathStyle: !!runtime.s3.forcePathStyle,
+        }
+      : null,
+  });
+}));
+
+const storageConfigSchema = z.object({
+  storageType: z.enum(['filesystem', 's3']),
+  s3: z
+    .object({
+      bucket: z.string().min(1),
+      region: z.string().min(1).default('us-east-1'),
+      endpoint: z.string().optional().default(''),
+      accessKeyId: z.string().optional().default(''),
+      secretAccessKey: z.string().optional().default(''),
+      publicUrl: z.string().url(),
+      forcePathStyle: z.boolean().optional().default(false),
+    })
+    .optional(),
+});
+
+// PUT /v1/admin/storage/config - Save storage config to DB and apply runtime
+router.put('/storage/config', authenticateAdmin, asyncHandler(async (req: Request, res: Response) => {
+  const body = storageConfigSchema.parse(req.body);
+
+  if (body.storageType === 's3' && !body.s3) {
+    throw new AppError('Missing s3 config', 400);
+  }
+
+  await prisma.systemConfig.upsert({
+    where: { id: 1 },
+    update: {
+      storageType: body.storageType,
+      s3Bucket: body.storageType === 's3' ? body.s3!.bucket : null,
+      s3Region: body.storageType === 's3' ? body.s3!.region : null,
+      s3Endpoint: body.storageType === 's3' ? (body.s3!.endpoint || null) : null,
+      s3AccessKeyId: body.storageType === 's3' ? (body.s3!.accessKeyId || null) : null,
+      s3SecretAccessKey: body.storageType === 's3' ? (body.s3!.secretAccessKey || null) : null,
+      s3PublicUrl: body.storageType === 's3' ? body.s3!.publicUrl : null,
+      s3ForcePathStyle: body.storageType === 's3' ? (body.s3!.forcePathStyle || false) : false,
+    },
+    create: {
+      id: 1,
+      storageType: body.storageType,
+      s3Bucket: body.storageType === 's3' ? body.s3!.bucket : null,
+      s3Region: body.storageType === 's3' ? body.s3!.region : null,
+      s3Endpoint: body.storageType === 's3' ? (body.s3!.endpoint || null) : null,
+      s3AccessKeyId: body.storageType === 's3' ? (body.s3!.accessKeyId || null) : null,
+      s3SecretAccessKey: body.storageType === 's3' ? (body.s3!.secretAccessKey || null) : null,
+      s3PublicUrl: body.storageType === 's3' ? body.s3!.publicUrl : null,
+      s3ForcePathStyle: body.storageType === 's3' ? (body.s3!.forcePathStyle || false) : false,
+    },
+  });
+
+  if (body.storageType === 'filesystem') {
+    setRuntimeStorageConfig({ storageType: 'filesystem', s3: null });
+  } else {
+    setRuntimeStorageConfig({
+      storageType: 's3',
+      s3: {
+        bucket: body.s3!.bucket,
+        region: body.s3!.region,
+        endpoint: body.s3!.endpoint || undefined,
+        accessKeyId: body.s3!.accessKeyId || undefined,
+        secretAccessKey: body.s3!.secretAccessKey || undefined,
+        publicUrl: body.s3!.publicUrl,
+        forcePathStyle: body.s3!.forcePathStyle || false,
+      },
+    } as any);
+  }
+
+  resetStorage();
+  res.json({ ok: true });
+}));
+
+// POST /v1/admin/storage/test - Test a provided S3 config without saving
+router.post('/storage/test', authenticateAdmin, asyncHandler(async (req: Request, res: Response) => {
+  const body = storageConfigSchema.parse(req.body);
+  if (body.storageType !== 's3' || !body.s3) {
+    throw new AppError('storageType must be s3 for test', 400);
+  }
+
+  // If the secret was left blank (masked in UI), fall back to the currently
+  // saved runtime secret so the test can still run without re-entering it.
+  let secretAccessKey = body.s3.secretAccessKey || undefined;
+  if (!secretAccessKey && body.s3.accessKeyId) {
+    const runtime = getRuntimeStorageConfig();
+    if (runtime.s3?.secretAccessKey) {
+      secretAccessKey = runtime.s3.secretAccessKey;
+    }
+  }
+
+  const client = makeS3Client({
+    region: body.s3.region,
+    endpoint: body.s3.endpoint || undefined,
+    accessKeyId: body.s3.accessKeyId || undefined,
+    secretAccessKey,
+    forcePathStyle: body.s3.forcePathStyle || false,
+  });
+
+  try {
+    await client.send(new HeadBucketCommand({ Bucket: body.s3.bucket }));
+    const list = await client.send(new ListObjectsV2Command({ Bucket: body.s3.bucket, MaxKeys: 1 }));
+    res.json({ ok: true, sampleKey: list.Contents?.[0]?.Key || null });
+  } catch (err: any) {
+    throw new AppError(err.message || 'Connection failed', 400);
+  }
+}));
+
+// GET /v1/admin/storage/list?prefix=...&limit=...&cursor=...
+router.get('/storage/list', authenticateAdmin, asyncHandler(async (req: Request, res: Response) => {
+  const s3 = requireS3();
+  const client = makeS3Client(s3);
+
+  const schema = z.object({
+    prefix: z.string().optional().default(''),
+    limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+    cursor: z.string().optional(),
+  });
+  const { prefix, limit, cursor } = schema.parse(req.query);
+
+  const out = await client.send(new ListObjectsV2Command({
+    Bucket: s3.bucket,
+    Prefix: prefix || undefined,
+    MaxKeys: limit,
+    ContinuationToken: cursor,
+  }));
+
+  const base = s3.publicUrl.replace(/\/$/, '');
+  res.json({
+    prefix,
+    nextCursor: out.IsTruncated ? (out.NextContinuationToken || null) : null,
+    objects: (out.Contents || [])
+      .filter((o) => !!o.Key)
+      .map((o) => ({
+        key: o.Key!,
+        size: o.Size ?? 0,
+        lastModified: o.LastModified ? o.LastModified.toISOString() : null,
+        url: `${base}/${o.Key}`,
+      })),
+  });
 }));
 
 export default router;

@@ -2,7 +2,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import { Readable } from 'stream';
 import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { config } from '../config';
+import { config as envConfig } from '../config';
+import { getRuntimeStorageConfig } from './runtimeConfig';
 
 export interface StorageService {
   /** Upload buffer and return the public URL */
@@ -67,22 +68,22 @@ export class S3Storage implements StorageService {
   private bucket: string;
   private publicBase: string;
 
-  constructor() {
-    const endpoint = config.s3?.endpoint;
-    const region = config.s3?.region || 'us-east-1';
-    this.bucket = config.s3!.bucket;
-    this.publicBase = config.s3!.publicUrl;
+  constructor(s3: NonNullable<ReturnType<typeof getRuntimeStorageConfig>['s3']>) {
+    const endpoint = s3?.endpoint;
+    const region = s3?.region || 'us-east-1';
+    this.bucket = s3!.bucket;
+    this.publicBase = s3!.publicUrl;
 
     this.client = new S3Client({
       region,
       ...(endpoint && { endpoint }),
-      credentials: config.s3?.accessKeyId
+      credentials: s3?.accessKeyId
         ? {
-            accessKeyId: config.s3.accessKeyId,
-            secretAccessKey: config.s3.secretAccessKey!,
+            accessKeyId: s3.accessKeyId,
+            secretAccessKey: s3.secretAccessKey!,
           }
         : undefined,
-      forcePathStyle: config.s3?.forcePathStyle,
+      forcePathStyle: s3?.forcePathStyle,
     });
   }
 
@@ -94,6 +95,7 @@ export class S3Storage implements StorageService {
         Key: normalizedKey,
         Body: buffer,
         ContentType: contentType,
+        ACL: 'public-read' as any,
       })
     );
     return `${this.publicBase.replace(/\/$/, '')}/${normalizedKey}`;
@@ -131,12 +133,17 @@ export class S3Storage implements StorageService {
 let _storage: StorageService | null = null;
 
 export function getStorage(): StorageService {
+  const runtime = getRuntimeStorageConfig();
   if (!_storage) {
-    if (config.storageType === 's3' && config.s3?.bucket && config.s3?.publicUrl) {
-      _storage = new S3Storage();
+    if (runtime.storageType === 's3' && runtime.s3?.bucket && runtime.s3?.publicUrl) {
+      _storage = new S3Storage(runtime.s3);
     } else {
-      _storage = new FileSystemStorage(config.uploadDir);
+      _storage = new FileSystemStorage(envConfig.uploadDir);
     }
   }
   return _storage;
+}
+
+export function resetStorage() {
+  _storage = null;
 }

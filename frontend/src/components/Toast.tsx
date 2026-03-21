@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import { X, Camera, CheckCircle, AlertTriangle, Info } from 'lucide-react';
+import { X } from 'lucide-react';
+
+type ToastType = 'info' | 'success' | 'warning' | 'error' | 'photo';
 
 interface Toast {
   id: string;
   message: string;
-  type: 'info' | 'success' | 'warning' | 'photo';
+  type: ToastType;
   duration?: number;
   onClick?: () => void;
 }
@@ -34,8 +36,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ addToast }}>
       {children}
-      {/* Toast container */}
-      <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none max-w-sm w-full">
+      <div
+        className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"
+        style={{ maxWidth: '22rem', width: 'calc(100vw - 2rem)' }}
+      >
         {toasts.map((toast) => (
           <ToastItem key={toast.id} toast={toast} onDismiss={() => removeToast(toast.id)} />
         ))}
@@ -43,6 +47,37 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     </ToastContext.Provider>
   );
 }
+
+const typeConfig: Record<
+  ToastType,
+  { icon: string; borderClass: string; textClass: string }
+> = {
+  success: {
+    icon: 'check_circle',
+    borderClass: 'border-l-2 border-primary',
+    textClass: 'text-primary',
+  },
+  error: {
+    icon: 'error',
+    borderClass: 'border-l-2 border-error',
+    textClass: 'text-error',
+  },
+  warning: {
+    icon: 'warning',
+    borderClass: 'border-l-2 border-secondary',
+    textClass: 'text-secondary',
+  },
+  info: {
+    icon: 'info',
+    borderClass: '',
+    textClass: 'text-on-surface',
+  },
+  photo: {
+    icon: 'photo_camera',
+    borderClass: 'border-l-2 border-primary',
+    textClass: 'text-primary',
+  },
+};
 
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
   const [exiting, setExiting] = useState(false);
@@ -64,36 +99,47 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
     }
   };
 
-  const iconMap = {
-    info: <Info className="w-5 h-5 text-blue-400" />,
-    success: <CheckCircle className="w-5 h-5 text-green-400" />,
-    warning: <AlertTriangle className="w-5 h-5 text-yellow-400" />,
-    photo: <Camera className="w-5 h-5 text-pine-700" />,
-  };
-
-  const bgMap = {
-    info: 'border-blue-500/20',
-    success: 'border-green-500/20',
-    warning: 'border-yellow-500/20',
-    photo: 'border-pine-700/30',
-  };
+  const { icon, borderClass, textClass } = typeConfig[toast.type] ?? typeConfig.info;
 
   return (
     <div
-      className={`pointer-events-auto bg-white shadow-xl rounded-xl border ${bgMap[toast.type]} 
-      px-4 py-3 flex items-center gap-3 transition-all duration-300 
-      ${exiting ? 'opacity-0 translate-x-4' : 'opacity-100 translate-x-0 animate-slide-in'}
-      ${toast.onClick ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+      className={[
+        'pointer-events-auto',
+        'bg-surface-container-high/90 backdrop-blur-xl',
+        'rounded-xl',
+        'shadow-2xl shadow-black/40',
+        'px-4 py-3',
+        'flex items-start gap-3',
+        'transition-all duration-300',
+        borderClass,
+        exiting
+          ? 'opacity-0 translate-x-4'
+          : 'opacity-100 translate-x-0 animate-slide-in',
+        toast.onClick ? 'cursor-pointer' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       onClick={handleClick}
     >
-      <div className="flex-shrink-0">{iconMap[toast.type]}</div>
-      <p className="text-sm text-gray-700 flex-1">{toast.message}</p>
+      {/* Icon */}
+      <span
+        className={`material-symbols-outlined text-[20px] flex-shrink-0 mt-0.5 ${textClass}`}
+        style={{ fontVariationSettings: "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20" }}
+      >
+        {icon}
+      </span>
+
+      {/* Message */}
+      <p className="text-sm text-on-surface flex-1 leading-snug">{toast.message}</p>
+
+      {/* Dismiss */}
       <button
         onClick={(e) => {
           e.stopPropagation();
           onDismiss();
         }}
-        className="flex-shrink-0 p-1 hover:bg-gray-100 rounded-lg transition-colors text-gray-400"
+        className="flex-shrink-0 p-1 -mr-1 -mt-0.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-bright transition-colors"
+        aria-label="Dismiss"
       >
         <X className="w-3.5 h-3.5" />
       </button>

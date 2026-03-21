@@ -28,7 +28,8 @@ export interface ProcessedImages {
  */
 export async function processImage(
   inputBuffer: Buffer,
-  _originalFilename: string
+  _originalFilename: string,
+  prefix?: string
 ): Promise<ProcessedImages> {
   const id = uuidv4();
   const storage = getStorage();
@@ -39,29 +40,33 @@ export async function processImage(
     failOn: 'truncated',
   }).rotate(); // auto-orient + strip EXIF
 
-  // ── Large derivative (AVIF) ─────────────────────────────────
-  const largeName = `${id}.avif`;
-  const largeKey = `large/${largeName}`;
+  // ── Large derivative (JPEG) ──────────────────────────────────
+  // JPEG has 100% browser support and no content-type guessing issues.
+  // AVIF was used before but Express static serves it as application/octet-stream
+  // on some environments, causing broken images in the browser.
+  const largeName = `${id}.jpg`;
+  const base = prefix ? `${prefix.replace(/\/$/, '')}/` : '';
+  const largeKey = `${base}images/large/${largeName}`;
 
   const largeBuffer = await input
     .clone()
     .resize(2048, 2048, { fit: 'inside', withoutEnlargement: true })
-    .avif({ quality: 50, effort: 2 })
+    .jpeg({ quality: 85, progressive: true, mozjpeg: true })
     .toBuffer();
 
   // ── Thumbnail (WebP) ───────────────────────────────────────
   const thumbName = `${id}.webp`;
-  const thumbKey = `thumbnails/${thumbName}`;
+  const thumbKey = `${base}images/thumbnails/${thumbName}`;
 
   const thumbBuffer = await input
     .clone()
-    .resize(300, 300, { fit: 'cover' })
-    .webp({ quality: 55, effort: 4, smartSubsample: true })
+    .resize(400, 400, { fit: 'cover' })
+    .webp({ quality: 72, effort: 4, smartSubsample: true })
     .toBuffer();
 
   // Upload both in parallel
   const [largeUrl, thumbUrl] = await Promise.all([
-    storage.upload(largeBuffer, largeKey, 'image/avif'),
+    storage.upload(largeBuffer, largeKey, 'image/jpeg'),
     storage.upload(thumbBuffer, thumbKey, 'image/webp'),
   ]);
 

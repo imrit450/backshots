@@ -105,8 +105,9 @@ router.post(
     const description = (req.body.description as string)?.trim() || null;
 
     // Process image + run quality analysis in parallel
+    const photoPrefix = `hosts/${event.hostId}/events/${event.id}`;
     const [processed, analysis] = await Promise.all([
-      processImage(req.file.buffer, req.file.originalname),
+      processImage(req.file.buffer, req.file.originalname, photoPrefix),
       analyzeImage(req.file.buffer).catch(() => null), // never block upload on analysis failure
     ]);
 

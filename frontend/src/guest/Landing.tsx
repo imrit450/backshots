@@ -1,13 +1,13 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useUser } from '@clerk/react';
 import { api } from '../api/client';
-import { Camera, Sparkles, Phone, User, Edit3, ArrowRight } from 'lucide-react';
-import Footer from '../components/Footer';
-import { getTheme } from '../config/themes';
+import { Camera, ArrowRight, Edit3 } from 'lucide-react';
+import { LogoWordmark, LogoIcon } from '../components/Logo';
 
 // Generate and persist a unique device ID for this browser
 function getDeviceId(): string {
-  const KEY = 'backshots_device_id';
+  const KEY = 'lumora_device_id';
   let id = localStorage.getItem(KEY);
   if (!id) {
     id = crypto.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -19,25 +19,32 @@ function getDeviceId(): string {
 export default function GuestLanding() {
   const { eventCode } = useParams<{ eventCode: string }>();
   const navigate = useNavigate();
+  const { isLoaded: clerkLoaded, isSignedIn, user } = useUser();
   const [event, setEvent] = useState<any>(null);
 
-  // Pre-fill name from localStorage cache
+  // Pre-fill name from localStorage cache initially
   const [displayName, setDisplayName] = useState(
     () => localStorage.getItem('guestDisplayName') || ''
   );
   const [phoneNumber, setPhoneNumber] = useState(
     () => localStorage.getItem('guestPhoneNumber') || ''
   );
+
+  // Once Clerk loads, override with the logged-in user's profile if available
+  useEffect(() => {
+    if (!clerkLoaded || !isSignedIn || !user) return;
+    const name = user.fullName ?? user.firstName ?? user.emailAddresses[0]?.emailAddress ?? '';
+    if (name) setDisplayName(name);
+    const phone = user.phoneNumbers?.[0]?.phoneNumber ?? '';
+    if (phone) setPhoneNumber(phone);
+  }, [clerkLoaded, isSignedIn, user]);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState('');
 
-  const theme = useMemo(() => getTheme(event?.theme), [event?.theme]);
-
   // Returning-device detection
   const [existingSession, setExistingSession] = useState<any>(null);
   const [showEditName, setShowEditName] = useState(false);
-  const [checkingDevice, setCheckingDevice] = useState(true);
 
   const deviceId = getDeviceId();
 
@@ -68,7 +75,6 @@ export default function GuestLanding() {
 
     Promise.all([loadEvent, checkDevice]).finally(() => {
       setLoading(false);
-      setCheckingDevice(false);
     });
   }, [eventCode, deviceId]);
 
@@ -156,207 +162,272 @@ export default function GuestLanding() {
     }
   };
 
-  // ─── Loading state ──────────────────────────────────────────
+  // ─── Loading state ────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-pine-800 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-gold-300 border-t-transparent" />
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
       </div>
     );
   }
 
-  // ─── Error state (no event) ─────────────────────────────────
+  // ─── Error state (no event) ───────────────────────────────────
   if (error && !event) {
     return (
-      <div className="min-h-screen bg-pine-800 flex items-center justify-center p-4">
-        <div className="text-center text-white">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gold-300 rounded-2xl mb-4">
-            <Camera className="w-8 h-8 text-pine-800" />
+      <div className="min-h-screen bg-surface flex flex-col">
+        {/* Nav */}
+        <nav className="px-6 py-4 flex justify-between items-center">
+          <LogoWordmark iconSize={20} textSize="text-base" />
+          <Link
+            to="/host/login"
+            className="bg-surface-container-highest text-on-surface-variant text-xs rounded-full px-3 py-1 hover:text-primary hover:bg-surface-container transition-colors"
+          >
+            Guest Mode
+          </Link>
+        </nav>
+
+        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-surface-container-highest flex items-center justify-center mb-4">
+            <Camera className="w-8 h-8 text-on-surface-variant" />
           </div>
-          <h1 className="font-display text-3xl text-white mb-2">Oops!</h1>
-          <p className="text-white/60 font-sans text-sm">{error}</p>
+          <h1 className="font-headline font-extrabold text-2xl text-on-surface mb-2">
+            Event Not Found
+          </h1>
+          <p className="text-on-surface-variant text-sm">{error}</p>
         </div>
+
+        <LogoIcon size={14} className="mx-auto opacity-30" />
       </div>
     );
   }
 
-  // ─── Returning device: existing session found ───────────────
+  // ─── Returning device: existing session found ─────────────────
   if (existingSession && !showEditName) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: theme.bgGradient }}>
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-10 left-10 w-32 h-32 rounded-full blur-3xl" style={{ backgroundColor: theme.glow }} />
-          <div className="absolute bottom-20 right-10 w-48 h-48 rounded-full blur-3xl" style={{ backgroundColor: theme.glow }} />
-        </div>
+      <div className="min-h-screen bg-surface flex flex-col">
+        {/* Nav */}
+        <nav className="px-6 py-5 flex justify-between items-center flex-shrink-0">
+          <LogoWordmark iconSize={20} textSize="text-base" />
+          <Link
+            to="/host/login"
+            className="bg-surface-container-highest text-on-surface-variant text-xs rounded-full px-3 py-1.5 hover:text-primary hover:bg-surface-container transition-colors"
+          >
+            Sign in
+          </Link>
+        </nav>
 
-        <div className="relative z-10 w-full max-w-sm text-center">
-          {event?.iconUrl ? (
-            <div className="inline-flex items-center justify-center w-20 h-20 backdrop-blur-sm rounded-3xl mb-6 shadow-2xl overflow-hidden" style={{ backgroundColor: `${theme.accent}15`, borderColor: `${theme.accent}33`, borderWidth: 1 }}>
+        {/* Hero */}
+        <div className="flex flex-col items-center pt-4 pb-8 px-6 relative">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
+
+          <div className="relative z-10 w-24 h-24 rounded-2xl overflow-hidden shadow-xl mb-4">
+            {event?.iconUrl ? (
               <img src={event.iconUrl} alt="" className="w-full h-full object-cover" />
-            </div>
-          ) : (
-            <div className="inline-flex items-center justify-center w-20 h-20 backdrop-blur-sm rounded-3xl mb-6 shadow-2xl" style={{ backgroundColor: `${theme.accent}15`, borderColor: `${theme.accent}33`, borderWidth: 1 }}>
-              <Camera className="w-10 h-10" style={{ color: theme.accent }} />
-            </div>
-          )}
-
-          <h1 className="font-display text-3xl mb-2" style={{ color: theme.textPrimary }}>{event?.title}</h1>
-
-          <div className="bg-white/8 backdrop-blur-sm rounded-2xl p-5 mb-6 mt-6" style={{ borderColor: theme.inputBorder, borderWidth: 1 }}>
-            <p className="text-sm mb-1 font-sans" style={{ color: theme.textSecondary }}>Welcome back!</p>
-            <p className="font-display text-2xl" style={{ color: theme.textPrimary }}>{existingSession.displayName}</p>
-            {existingSession.phoneNumber && (
-              <p className="text-white/40 text-sm mt-1 font-sans">{existingSession.phoneNumber}</p>
+            ) : (
+              <div className="kinetic-gradient w-full h-full flex items-center justify-center">
+                <Camera className="w-10 h-10 text-white/80" />
+              </div>
             )}
-            <p className="text-white/30 text-xs mt-2 font-sans">
-              {existingSession.photoCount} photo{existingSession.photoCount !== 1 ? 's' : ''} taken
-            </p>
           </div>
 
-          {error && (
-            <div className="mb-4 text-red-200 text-sm bg-red-500/20 px-4 py-2 rounded-xl font-sans">
-              {error}
-            </div>
-          )}
+          <span className="relative z-10 bg-tertiary/10 text-tertiary border border-tertiary/30 px-3 py-0.5 rounded-full text-[10px] font-bold tracking-widest mb-3">
+            ● LIVE NOW
+          </span>
 
-          <button
-            onClick={handleContinue}
-            disabled={joining}
-            className="w-full py-4 px-6 font-bold text-lg rounded-2xl shadow-2xl transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed mb-3"
-            style={{ backgroundColor: theme.buttonBg, color: theme.buttonText }}
-          >
-            {joining ? (
-              <span className="flex items-center justify-center gap-2">
-                <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
-                Joining...
-              </span>
-            ) : (
-              <span className="flex items-center justify-center gap-2">
-                <ArrowRight className="w-5 h-5" />
-                Continue as {existingSession.displayName}
-              </span>
+          <h1 className="relative z-10 font-headline font-extrabold text-2xl text-center text-on-surface leading-tight">
+            {event?.title}
+          </h1>
+        </div>
+
+        {/* Welcome back card */}
+        <div className="flex-1 px-6 pb-6">
+          <div className="bg-surface-container-low rounded-3xl p-6 border border-outline-variant/20">
+            <p className="text-on-surface-variant/60 text-xs font-bold tracking-widest uppercase mb-3">Welcome back</p>
+            <p className="font-headline font-bold text-2xl text-on-surface mb-1">
+              {existingSession.displayName}
+            </p>
+            {existingSession.phoneNumber && (
+              <p className="text-on-surface-variant text-sm">{existingSession.phoneNumber}</p>
             )}
-          </button>
+            <p className="text-on-surface-variant/40 text-xs mt-2">
+              {existingSession.photoCount} photo{existingSession.photoCount !== 1 ? 's' : ''} taken at this event
+            </p>
 
-          <button
-            onClick={() => setShowEditName(true)}
-            disabled={joining}
-            className="w-full py-3 px-6 bg-white/8 text-white/70 font-medium text-sm rounded-2xl hover:bg-white/12 transition-all duration-200 active:scale-[0.98] disabled:opacity-50"
-            style={{ borderColor: theme.inputBorder, borderWidth: 1 }}
-          >
-            <span className="flex items-center justify-center gap-2">
-              <Edit3 className="w-4 h-4" />
-              Change my name
-            </span>
-          </button>
+            {error && (
+              <div className="mt-4 text-error text-sm bg-error/10 px-4 py-3 rounded-xl border border-error/20 text-center">
+                {error}
+              </div>
+            )}
 
-          <p className="text-white/30 text-xs mt-6 font-sans">
-            Scan. Capture. Celebrate.
+            <button
+              onClick={handleContinue}
+              disabled={joining}
+              className="group w-full mt-6 kinetic-gradient py-4 rounded-2xl text-on-primary font-headline font-bold text-base flex items-center justify-center gap-2 transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_0_28px_rgba(145,70,255,0.4)]"
+            >
+              {joining ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  Joining...
+                </>
+              ) : (
+                <>
+                  Continue
+                  <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={() => setShowEditName(true)}
+              disabled={joining}
+              className="w-full mt-3 py-2 text-on-surface-variant/60 text-sm font-medium flex items-center justify-center gap-2 hover:text-on-surface transition-colors disabled:opacity-50"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              Not you?
+            </button>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex-shrink-0 pb-6 text-center space-y-1">
+          <LogoIcon size={14} className="mx-auto opacity-30" />
+          <p className="text-xs text-on-surface-variant/30">
+            Have a host account?{' '}
+            <Link to="/host/login" className="text-primary/70 hover:text-primary transition-colors">Sign in</Link>
+            {' '}or{' '}
+            <Link to="/host/signup" className="text-primary/70 hover:text-primary transition-colors">Register</Link>
           </p>
-          <Footer className="mt-4" />
         </div>
       </div>
     );
   }
 
-  // ─── New device OR editing name ─────────────────────────────
+  // ─── New device OR editing name ───────────────────────────────
   const isEditing = !!existingSession && showEditName;
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6" style={{ background: theme.bgGradient }}>
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-10 left-10 w-32 h-32 rounded-full blur-3xl" style={{ backgroundColor: theme.glow }} />
-        <div className="absolute bottom-20 right-10 w-48 h-48 rounded-full blur-3xl" style={{ backgroundColor: theme.glow }} />
-      </div>
+    <div className="min-h-screen bg-surface flex flex-col">
+      {/* Nav */}
+      <nav className="px-6 py-5 flex justify-between items-center flex-shrink-0">
+        <span className="font-headline font-bold text-primary text-lg">Lumora</span>
+        <Link
+          to="/host/login"
+          className="bg-surface-container-highest text-on-surface-variant text-xs rounded-full px-3 py-1.5 hover:text-primary hover:bg-surface-container transition-colors"
+        >
+          Sign in
+        </Link>
+      </nav>
 
-      <div className="relative z-10 w-full max-w-sm text-center">
-        {event?.iconUrl ? (
-          <div className="inline-flex items-center justify-center w-20 h-20 backdrop-blur-sm rounded-3xl mb-6 shadow-2xl overflow-hidden" style={{ backgroundColor: `${theme.accent}15`, borderColor: `${theme.accent}33`, borderWidth: 1 }}>
+      {/* Hero */}
+      <div className="flex flex-col items-center pt-4 pb-8 px-6 relative">
+        {/* Ambient glow behind icon */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
+
+        {/* Event icon */}
+        <div className="relative z-10 w-24 h-24 rounded-2xl overflow-hidden shadow-xl mb-4">
+          {event?.iconUrl ? (
             <img src={event.iconUrl} alt="" className="w-full h-full object-cover" />
-          </div>
-        ) : (
-          <div className="inline-flex items-center justify-center w-20 h-20 backdrop-blur-sm rounded-3xl mb-6 shadow-2xl" style={{ backgroundColor: `${theme.accent}15`, borderColor: `${theme.accent}33`, borderWidth: 1 }}>
-            <Camera className="w-10 h-10" style={{ color: theme.accent }} />
-          </div>
+          ) : (
+            <div className="kinetic-gradient w-full h-full flex items-center justify-center">
+              <Camera className="w-10 h-10 text-white/80" />
+            </div>
+          )}
+        </div>
+
+        {/* Live badge */}
+        {event && (
+          <span className="relative z-10 bg-tertiary/10 text-tertiary border border-tertiary/30 px-3 py-0.5 rounded-full text-[10px] font-bold tracking-widest mb-3">
+            ● LIVE NOW
+          </span>
         )}
 
-        <h1 className="font-display text-3xl mb-2" style={{ color: theme.textPrimary }}>{event?.title}</h1>
-        <p className="mb-8 flex items-center justify-center gap-1 font-sans text-sm" style={{ color: theme.textSecondary }}>
-          <Sparkles className="w-4 h-4" />
-          {isEditing ? 'Update your details' : 'Capture the moment'}
+        {/* Event title */}
+        <h1 className="relative z-10 font-headline font-extrabold text-2xl text-center text-on-surface leading-tight">
+          {event?.title || 'Join Event'}
+        </h1>
+        <p className="relative z-10 text-on-surface-variant/50 text-sm mt-1">
+          Snap and share your moments
         </p>
+      </div>
 
-        <div className="mb-4">
-          <div className="relative">
-            <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 z-10" style={{ color: `${theme.accent}66` }} />
+      {/* Form card */}
+      <div className="flex-1 px-6 pb-6">
+        <div className="bg-surface-container-low rounded-3xl p-6 border border-outline-variant/20">
+          {/* Name */}
+          <div className="mb-7">
+            <label className="block text-on-surface-variant/60 text-[10px] font-bold tracking-widest uppercase mb-2">
+              Name <span className="text-primary">*</span>
+            </label>
             <input
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Your name *"
+              placeholder="Who are we seeing today?"
               required
-              style={{ backgroundColor: theme.inputBg, borderColor: theme.inputBorder }}
-              className="appearance-none w-full pl-12 pr-5 py-4 rounded-2xl backdrop-blur-sm border
-              text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-white/20
-              text-lg font-sans"
+              autoFocus
+              className="w-full bg-transparent border-b border-outline-variant/60 focus:border-primary text-on-surface placeholder:text-on-surface-variant/25 px-0 py-2.5 text-base focus:outline-none transition-colors duration-200"
             />
           </div>
-        </div>
 
-        <div className="mb-6">
-          <div className="relative">
-            <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 z-10" style={{ color: `${theme.accent}66` }} />
+          {/* Phone */}
+          <div className="mb-7">
+            <label className="block text-on-surface-variant/60 text-[10px] font-bold tracking-widest uppercase mb-2">
+              Phone <span className="text-on-surface-variant/30">optional</span>
+            </label>
             <input
               type="tel"
               value={phoneNumber}
               onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="Phone number (optional)"
-              style={{ backgroundColor: theme.inputBg, borderColor: theme.inputBorder }}
-              className="appearance-none w-full pl-12 pr-5 py-4 rounded-2xl backdrop-blur-sm border
-              text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-white/20
-              text-lg font-sans"
+              placeholder="+1 (555) 000-0000"
+              className="w-full bg-transparent border-b border-outline-variant/60 focus:border-primary text-on-surface placeholder:text-on-surface-variant/25 px-0 py-2.5 text-base focus:outline-none transition-colors duration-200"
             />
           </div>
-        </div>
 
-        {error && (
-          <div className="mb-4 text-red-200 text-sm bg-red-500/20 px-4 py-2 rounded-xl font-sans">
-            {error}
-          </div>
-        )}
-
-        <button
-          onClick={isEditing ? handleUpdateAndJoin : handleJoinNew}
-          disabled={joining || !displayName.trim()}
-          className="w-full py-4 px-6 font-bold text-lg rounded-2xl shadow-2xl transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ backgroundColor: theme.buttonBg, color: theme.buttonText }}
-        >
-          {joining ? (
-            <span className="flex items-center justify-center gap-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
-              {isEditing ? 'Updating...' : 'Joining...'}
-            </span>
-          ) : (
-            <span className="flex items-center justify-center gap-2">
-              <Camera className="w-5 h-5" />
-              {isEditing ? 'Update & Open Camera' : 'Open Camera'}
-            </span>
+          {error && (
+            <div className="mb-5 text-error text-sm bg-error/10 px-4 py-3 rounded-xl border border-error/20 text-center">
+              {error}
+            </div>
           )}
-        </button>
 
-        {isEditing && (
+          {/* CTA */}
           <button
-            onClick={() => setShowEditName(false)}
-            className="w-full mt-3 py-3 text-white/40 text-sm hover:text-white/60 transition-colors font-sans"
+            onClick={isEditing ? handleUpdateAndJoin : handleJoinNew}
+            disabled={joining || !displayName.trim()}
+            className="group w-full kinetic-gradient py-4 rounded-2xl text-on-primary font-headline font-bold text-base flex items-center justify-center gap-2 transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed shadow-[0_0_28px_rgba(145,70,255,0.4)]"
           >
-            Cancel
+            {joining ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                {isEditing ? 'Updating...' : 'Joining...'}
+              </>
+            ) : (
+              <>
+                Open Camera
+                <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
+              </>
+            )}
           </button>
-        )}
 
-        <p className="text-white/30 text-xs mt-6 font-sans">
-          Scan. Capture. Celebrate.
+          {isEditing && (
+            <button
+              onClick={() => setShowEditName(false)}
+              className="w-full mt-3 py-2 text-on-surface-variant text-sm hover:text-on-surface transition-colors text-center"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="flex-shrink-0 pb-6 text-center space-y-1">
+        <LogoIcon size={14} className="mx-auto opacity-30" />
+        <p className="text-xs text-on-surface-variant/30">
+          Have a host account?{' '}
+          <Link to="/host/login" className="text-primary/70 hover:text-primary transition-colors">Sign in</Link>
+          {' '}or{' '}
+          <Link to="/host/signup" className="text-primary/70 hover:text-primary transition-colors">Register</Link>
         </p>
-        <Footer className="mt-4" />
       </div>
     </div>
   );

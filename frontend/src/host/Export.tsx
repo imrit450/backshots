@@ -2,7 +2,14 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { api } from '../api/client';
-import { Download, Package, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import {
+  Download,
+  FileArchive,
+  Loader2,
+  SlidersHorizontal,
+  Sparkles,
+  Inbox,
+} from 'lucide-react';
 
 export default function ExportPage() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -26,7 +33,7 @@ export default function ExportPage() {
     fetchExports();
   }, [eventId]);
 
-  // Poll processing exports
+  // Poll while any export is processing
   useEffect(() => {
     const processing = exports.filter((e) => e.status === 'PROCESSING');
     if (processing.length === 0) return;
@@ -48,86 +55,148 @@ export default function ExportPage() {
     }
   };
 
-  const statusIcon = (status: string) => {
+  const isProcessing = exports.some((e) => e.status === 'PROCESSING');
+
+  // ── Status badge helper ────────────────────────────────────────────────
+  function statusBadge(status: string) {
     switch (status) {
       case 'COMPLETED':
-        return <CheckCircle className="w-5 h-5 text-green-500" />;
+        return (
+          <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-primary/10 text-primary">
+            Completed
+          </span>
+        );
       case 'PROCESSING':
-        return <Clock className="w-5 h-5 text-yellow-500 animate-spin" />;
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-secondary/10 text-secondary">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Processing
+          </span>
+        );
       case 'FAILED':
-        return <AlertCircle className="w-5 h-5 text-red-500" />;
+        return (
+          <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-error/10 text-error">
+            Failed
+          </span>
+        );
       default:
-        return <Clock className="w-5 h-5 text-gray-400" />;
+        return (
+          <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-surface-container-highest text-on-surface-variant">
+            Pending
+          </span>
+        );
     }
-  };
+  }
 
   return (
-    <Layout title="Export" showBack backTo={`/host/events/${eventId}`}>
+    <Layout title="Export" subtitle="MEDIA EXPORT" showBack backTo={`/host/events/${eventId}`}>
       <div className="max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Export Photos</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Download all approved photos as a ZIP file
-            </p>
+        {/* ── Hero card ─────────────────────────────────────────────── */}
+        <div className="bg-surface-container-low rounded-xl p-8 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-6">
+            <div className="flex-1 min-w-0">
+              <h2 className="font-headline text-2xl font-bold text-on-surface leading-tight mb-2">
+                Export Media Vault
+              </h2>
+              <p className="text-on-surface-variant text-sm leading-relaxed">
+                Bundle all approved photos into a single ZIP archive for download. Large events
+                may take a few moments to prepare.
+              </p>
+
+              {isProcessing && (
+                <div className="mt-4 flex items-center gap-2 text-secondary text-sm font-medium">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Preparing your export bundle…
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={handleCreateExport}
+              disabled={creating}
+              className="flex-shrink-0 flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-primary to-primary-dim text-white font-bold text-sm shadow-lg shadow-primary/25 hover:opacity-90 disabled:opacity-50 transition-all"
+            >
+              {creating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              {creating ? 'Creating…' : 'Generate New Bundle'}
+            </button>
           </div>
-          <button
-            onClick={handleCreateExport}
-            disabled={creating}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Package className="w-5 h-5" />
-            {creating ? 'Creating...' : 'New Export'}
-          </button>
         </div>
 
+        {/* ── Exports list card ─────────────────────────────────────── */}
         {loading ? (
-          <div className="flex justify-center py-16">
-            <div className="animate-spin rounded-full h-8 w-8 border-2 border-pine-800 border-t-transparent" />
+          <div className="flex flex-col items-center justify-center py-16 gap-4">
+            <Loader2 className="w-7 h-7 animate-spin text-primary" />
+            <p className="text-on-surface-variant text-sm">Loading exports…</p>
           </div>
         ) : exports.length === 0 ? (
-          <div className="text-center py-16 card">
-            <Download className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500">No exports yet. Create one to download your photos.</p>
+          <div className="bg-surface-container-low rounded-xl p-12 flex flex-col items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-surface-container-highest flex items-center justify-center">
+              <Inbox className="w-7 h-7 text-on-surface-variant/40" />
+            </div>
+            <div className="text-center">
+              <p className="text-on-surface font-headline font-bold text-base">No exports yet</p>
+              <p className="text-on-surface-variant text-sm mt-1">
+                Generate a bundle above to download your photos.
+              </p>
+            </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            {exports.map((exp) => (
-              <div key={exp.id} className="card flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  {statusIcon(exp.status)}
-                  <div>
-                    <div className="font-medium text-gray-900">
-                      {exp.photoCount} photos
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {new Date(exp.createdAt).toLocaleString()}
-                    </div>
-                  </div>
+          <div className="bg-surface-container-low rounded-xl overflow-hidden">
+            {/* List header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/10">
+              <p className="text-on-surface font-headline font-bold text-sm">
+                Export History
+              </p>
+              <button className="w-8 h-8 flex items-center justify-center rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-bright transition-colors">
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Export rows */}
+            {exports.map((exp, index) => (
+              <div
+                key={exp.id}
+                className={`flex items-center gap-5 px-5 py-5 transition-colors hover:bg-surface-bright/30 ${
+                  index < exports.length - 1 ? 'border-b border-outline-variant/10' : ''
+                }`}
+              >
+                {/* File icon */}
+                <div className="w-10 h-10 rounded-xl bg-surface-container-highest flex items-center justify-center text-primary flex-shrink-0">
+                  <FileArchive className="w-5 h-5" />
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`text-xs px-2 py-1 rounded-full ${
-                      exp.status === 'COMPLETED'
-                        ? 'bg-green-100 text-green-700'
-                        : exp.status === 'PROCESSING'
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : exp.status === 'FAILED'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-gray-100 text-gray-500'
-                    }`}
-                  >
-                    {exp.status}
-                  </span>
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-on-surface font-bold text-sm leading-tight">
+                    Export #{exports.length - index}
+                  </p>
+                  <p className="text-on-surface-variant text-xs mt-0.5">
+                    {exp.photoCount ?? '—'} photo{exp.photoCount !== 1 ? 's' : ''} ·{' '}
+                    {new Date(exp.createdAt).toLocaleString([], {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                </div>
+
+                {/* Status + download */}
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  {statusBadge(exp.status)}
+
                   {exp.status === 'COMPLETED' && exp.fileUrl && (
                     <a
                       href={exp.fileUrl}
                       download
-                      className="btn-primary py-2 px-4 text-sm flex items-center gap-1"
+                      className="w-9 h-9 flex items-center justify-center rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                      title="Download ZIP"
                     >
                       <Download className="w-4 h-4" />
-                      Download
                     </a>
                   )}
                 </div>

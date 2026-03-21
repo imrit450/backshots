@@ -18,7 +18,7 @@ describe('Moderation API', () => {
     const hostRes = await request(app)
       .post('/v1/auth/host/signup')
       .send({
-        email: 'modhost@backshots.app',
+        email: 'modhost@lumora.app',
         password: 'password123',
         displayName: 'Mod Host',
       });

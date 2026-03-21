@@ -7,7 +7,7 @@ if (process.env.NODE_ENV !== 'test') {
 
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
-  get jwtSecret() { return process.env.JWT_SECRET || 'backshots-dev-secret'; },
+  get jwtSecret() { return process.env.JWT_SECRET || 'lumora-dev-secret'; },
   uploadDir: path.resolve(__dirname, process.env.UPLOAD_DIR || '../../uploads'),
   exportDir: path.resolve(__dirname, process.env.EXPORT_DIR || '../../exports'),
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
@@ -19,6 +19,14 @@ export const config = {
   allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/avif'],
   thumbnailSize: 300,
   largeSize: 2048,
+
+  /** Clerk — used to verify JWTs issued by the Clerk frontend SDK. */
+  get clerkSecretKey(): string | undefined {
+    return process.env.CLERK_SECRET_KEY;
+  },
+  get clerkPublishableKey(): string | undefined {
+    return process.env.CLERK_PUBLISHABLE_KEY;
+  },
 
   /** Storage: 'filesystem' (default) or 's3' */
   get storageType(): 'filesystem' | 's3' {

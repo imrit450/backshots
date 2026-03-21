@@ -1,9 +1,12 @@
 {
-  "name": "backshots",
+  "name": "lumora",
   "version": "1.0.0",
   "private": true,
   "description": "Event photo capture system - hosts create events, guests capture via QR",
-  "workspaces": ["backend", "frontend"],
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "npm run dev --workspace=backend",

@@ -2,7 +2,24 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { api } from '../api/client';
-import { ImagePlus, X, Loader, Check } from 'lucide-react';
+import {
+  ImagePlus,
+  X,
+  Loader,
+  Check,
+  Trash2,
+  AlertTriangle,
+  CalendarDays,
+  Globe,
+  Camera,
+  Layers,
+  ShieldCheck,
+  Eye,
+  Clock,
+  HardDrive,
+  Users,
+  Power,
+} from 'lucide-react';
 import { THEME_LIST } from '../config/themes';
 
 export default function EventSettings() {
@@ -14,7 +31,9 @@ export default function EventSettings() {
   const [success, setSuccess] = useState('');
   const [iconUrl, setIconUrl] = useState<string | null>(null);
   const [iconUploading, setIconUploading] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const iconInputRef = useRef<HTMLInputElement>(null);
+
   const [form, setForm] = useState({
     title: '',
     startDatetime: '',
@@ -95,7 +114,6 @@ export default function EventSettings() {
     setError('');
     setSuccess('');
     setSaving(true);
-
     try {
       const payload = { ...form };
       if (payload.startDatetime) {
@@ -111,42 +129,79 @@ export default function EventSettings() {
     }
   };
 
+  const handleDeleteEvent = async () => {
+    if (!eventId) return;
+    setError('');
+    setSuccess('');
+    setSaving(true);
+    try {
+      await api.deleteEvent(eventId);
+      navigate('/host');
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete event');
+      setSaving(false);
+    }
+  };
+
+  /* ── Shared input class ───────────────────────────── */
+  const inputCls =
+    'w-full bg-surface-container-highest border border-outline-variant/40 text-on-surface text-sm rounded-xl px-4 py-3 placeholder-on-surface-variant/40 focus:outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/30 transition-colors';
+
+  const labelCls = 'block text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-2';
+
   if (loading) {
     return (
-      <Layout title="Settings" showBack backTo={`/host/events/${eventId}`}>
-        <div className="flex justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-pine-800 border-t-transparent" />
+      <Layout title="Event Settings" subtitle="SETTINGS" showBack backTo={`/host/events/${eventId}`}>
+        <div className="flex justify-center py-24">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
         </div>
       </Layout>
     );
   }
 
   return (
-    <Layout title="Event Settings" showBack backTo={`/host/events/${eventId}`}>
-      <div className="max-w-2xl mx-auto">
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {error && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm">{error}</div>}
-          {success && <div className="bg-green-50 text-green-600 px-4 py-3 rounded-xl text-sm">{success}</div>}
+    <Layout title="Event Settings" subtitle="SETTINGS" showBack backTo={`/host/events/${eventId}`}>
+      <div className="max-w-2xl mx-auto space-y-6 pb-16">
 
-          <div className="card space-y-4">
-            <h2 className="font-semibold text-gray-900">General</h2>
+        {/* ── Inline banners ───────────────────────────── */}
+        {error && (
+          <div className="flex items-center gap-3 bg-error/10 border border-error/20 text-error px-5 py-4 rounded-xl text-sm">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="flex items-center gap-3 bg-primary/10 border border-primary/20 text-primary px-5 py-4 rounded-xl text-sm">
+            <Check className="w-4 h-4 flex-shrink-0" />
+            {success}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+
+          {/* ── Section 1: Identity ──────────────────────── */}
+          <div className="bg-surface-container-low rounded-xl p-6 space-y-5">
+            <div className="flex items-center gap-2 mb-1">
+              <CalendarDays className="w-4 h-4 text-primary" />
+              <h2 className="text-sm font-bold text-on-surface uppercase tracking-wider">Identity</h2>
+            </div>
 
             {/* Event Icon */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Event Icon</label>
-              <div className="flex items-center gap-4">
+              <label className={labelCls}>Event Icon</label>
+              <div className="flex items-center gap-5">
                 {iconUrl ? (
-                  <div className="relative">
+                  <div className="relative flex-shrink-0">
                     <img
                       src={iconUrl}
                       alt="Event icon"
-                      className="w-16 h-16 rounded-xl object-cover border border-pine-100"
+                      className="w-16 h-16 rounded-xl object-cover border border-outline-variant/40"
                     />
                     <button
                       type="button"
                       onClick={handleRemoveIcon}
                       disabled={iconUploading}
-                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center shadow-sm disabled:opacity-50"
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-error rounded-full flex items-center justify-center shadow-md disabled:opacity-50"
                     >
                       {iconUploading ? (
                         <Loader className="w-3 h-3 text-white animate-spin" />
@@ -160,29 +215,29 @@ export default function EventSettings() {
                     type="button"
                     onClick={() => iconInputRef.current?.click()}
                     disabled={iconUploading}
-                    className="w-16 h-16 rounded-xl border-2 border-dashed border-pine-200 flex items-center justify-center hover:border-gold-300 hover:bg-gold-50 transition-colors disabled:opacity-50"
+                    className="flex-shrink-0 w-16 h-16 rounded-xl border-2 border-dashed border-outline-variant/50 flex items-center justify-center hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-50"
                   >
                     {iconUploading ? (
-                      <Loader className="w-6 h-6 text-pine-300 animate-spin" />
+                      <Loader className="w-6 h-6 text-primary animate-spin" />
                     ) : (
-                      <ImagePlus className="w-6 h-6 text-pine-300" />
+                      <ImagePlus className="w-6 h-6 text-on-surface-variant/40" />
                     )}
                   </button>
                 )}
-                <div className="text-sm text-gray-500">
+                <div className="space-y-1">
                   {iconUrl ? (
                     <button
                       type="button"
                       onClick={() => iconInputRef.current?.click()}
                       disabled={iconUploading}
-                      className="text-pine-700 font-medium hover:text-pine-800 disabled:opacity-50"
+                      className="text-sm font-semibold text-primary hover:text-primary-dim transition-colors disabled:opacity-50"
                     >
                       Change icon
                     </button>
                   ) : (
-                    <p>Upload an icon for your event</p>
+                    <p className="text-sm text-on-surface-variant">Upload an event icon</p>
                   )}
-                  <p className="text-xs text-gray-400">JPEG, PNG, or WebP. Max 5MB.</p>
+                  <p className="text-xs text-on-surface-variant/50">JPEG, PNG, or WebP. Max 5 MB.</p>
                 </div>
                 <input
                   ref={iconInputRef}
@@ -194,56 +249,91 @@ export default function EventSettings() {
               </div>
             </div>
 
+            {/* Title */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Event Title</label>
+              <label className={labelCls}>Event Title</label>
               <input
                 type="text"
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
-                className="input"
+                className={inputCls}
+                placeholder="My Awesome Event"
                 required
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Event Date & Time</label>
-              <input
-                type="datetime-local"
-                value={form.startDatetime}
-                onChange={(e) => setForm({ ...form, startDatetime: e.target.value })}
-                className="input"
-                required
-              />
+            {/* Date & Timezone row */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <CalendarDays className="w-3 h-3" />
+                    Date & Time
+                  </span>
+                </label>
+                <input
+                  type="datetime-local"
+                  value={form.startDatetime}
+                  onChange={(e) => setForm({ ...form, startDatetime: e.target.value })}
+                  className={inputCls}
+                  required
+                />
+              </div>
+              <div>
+                <label className={labelCls}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Globe className="w-3 h-3" />
+                    Timezone
+                  </span>
+                </label>
+                <input
+                  type="text"
+                  value={form.timezone}
+                  onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+                  className={inputCls}
+                  placeholder="e.g. UTC, America/New_York"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
-              <input
-                type="text"
-                value={form.timezone}
-                onChange={(e) => setForm({ ...form, timezone: e.target.value })}
-                className="input"
-                placeholder="e.g. UTC, America/New_York"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="isActive"
-                checked={form.isActive}
-                onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-                className="w-4 h-4 text-pine-700 rounded"
-              />
-              <label htmlFor="isActive" className="text-sm text-gray-700">
-                Event is active (guests can join and take photos)
-              </label>
+            {/* Event Active toggle */}
+            <div className="flex items-center justify-between bg-surface-container-highest rounded-xl px-5 py-4 border border-outline-variant/30">
+              <div className="flex items-start gap-3">
+                <Power className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-on-surface">Event Active</p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    When inactive, guests cannot join or upload
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.isActive}
+                onClick={() => setForm({ ...form, isActive: !form.isActive })}
+                className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2 focus:ring-offset-surface-container-highest ${
+                  form.isActive ? 'bg-primary' : 'bg-outline-variant'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
+                    form.isActive ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
           </div>
 
-          {/* Theme Picker */}
-          <div className="card space-y-4">
-            <h2 className="font-semibold text-gray-900">Event Theme</h2>
-            <p className="text-sm text-gray-500">Color theme for the guest experience.</p>
+          {/* ── Section 2: Theme ─────────────────────────── */}
+          <div className="bg-surface-container-low rounded-xl p-6 space-y-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Layers className="w-4 h-4 text-primary" />
+              <h2 className="text-sm font-bold text-on-surface uppercase tracking-wider">Guest Theme</h2>
+            </div>
+            <p className="text-xs text-on-surface-variant -mt-2">
+              Color theme shown to guests on the camera and gallery pages.
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {THEME_LIST.map((t) => {
                 const isSelected = form.theme === t.id;
@@ -254,141 +344,281 @@ export default function EventSettings() {
                     onClick={() => setForm({ ...form, theme: t.id })}
                     className={`relative rounded-xl p-3 text-left transition-all border-2 ${
                       isSelected
-                        ? 'border-pine-700 shadow-md'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'border-primary bg-primary/5 shadow-lg shadow-primary/10'
+                        : 'border-outline-variant/30 hover:border-outline-variant bg-surface-container-highest'
                     }`}
                   >
                     {isSelected && (
-                      <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-pine-700 rounded-full flex items-center justify-center">
+                      <div className="absolute top-2 right-2 w-5 h-5 bg-primary rounded-full flex items-center justify-center shadow-sm">
                         <Check className="w-3 h-3 text-white" />
                       </div>
                     )}
-                    <div className="flex gap-1 mb-2">
+                    <div className="flex gap-1 mb-2.5">
                       {t.swatchColors.map((c, i) => (
                         <div
                           key={i}
-                          className="w-6 h-6 rounded-full border border-gray-200"
+                          className="w-5 h-5 rounded-full border border-white/10 shadow-sm"
                           style={{ backgroundColor: c }}
                         />
                       ))}
                     </div>
-                    <div className="text-sm font-medium text-charcoal">{t.name}</div>
-                    <div className="text-xs text-gray-400">{t.occasion}</div>
+                    <div className="text-xs font-semibold text-on-surface leading-tight">{t.name}</div>
+                    <div className="text-[10px] text-on-surface-variant mt-0.5">{t.occasion}</div>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="card space-y-4">
-            <h2 className="font-semibold text-gray-900">Photo Settings</h2>
+          {/* ── Section 3: Photo Settings ────────────────── */}
+          <div className="bg-surface-container-low rounded-xl p-6 space-y-5">
+            <div className="flex items-center gap-2 mb-1">
+              <Camera className="w-4 h-4 text-primary" />
+              <h2 className="text-sm font-bold text-on-surface uppercase tracking-wider">Photo Settings</h2>
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
+              {/* Reveal Delay */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Reveal Delay (hours)
+                <label className={labelCls}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Clock className="w-3 h-3" />
+                    Reveal Delay (hours)
+                  </span>
                 </label>
                 <input
                   type="number"
                   value={form.revealDelayHours}
                   onChange={(e) => setForm({ ...form, revealDelayHours: parseInt(e.target.value) || 0 })}
-                  className="input"
+                  className={inputCls}
                   min={0}
                   max={168}
                 />
               </div>
+
+              {/* Upload Cutoff */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Upload Cutoff (hours after event)
+                <label className={labelCls}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Clock className="w-3 h-3" />
+                    Upload Cutoff (hours)
+                  </span>
                 </label>
                 <input
                   type="number"
                   value={form.uploadCutoffHours}
                   onChange={(e) => setForm({ ...form, uploadCutoffHours: parseInt(e.target.value) || 0 })}
-                  className="input"
+                  className={inputCls}
                   min={0}
                   max={720}
                   title="0 = no cutoff. Guests cannot upload after this many hours past event start."
                 />
-                <p className="text-xs text-gray-500 mt-0.5">0 = no cutoff</p>
+                <p className="text-[10px] text-on-surface-variant/50 mt-1.5">0 = no cutoff</p>
               </div>
+
+              {/* Max Photos/Guest */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Max Photos/Guest
+                <label className={labelCls}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Camera className="w-3 h-3" />
+                    Max Photos / Guest
+                  </span>
                 </label>
                 <input
                   type="number"
                   value={form.maxPhotosPerGuest}
                   onChange={(e) => setForm({ ...form, maxPhotosPerGuest: parseInt(e.target.value) || 1 })}
-                  className="input"
+                  className={inputCls}
                   min={1}
                   max={100}
                 />
               </div>
+
+              {/* Max Total Photos */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Max Total Photos
+                <label className={labelCls}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <Users className="w-3 h-3" />
+                    Max Total Photos
+                  </span>
                 </label>
                 <input
                   type="number"
                   value={form.maxPhotosTotal}
                   onChange={(e) => setForm({ ...form, maxPhotosTotal: parseInt(e.target.value) || 10 })}
-                  className="input"
+                  className={inputCls}
                   min={10}
                   max={10000}
                 />
               </div>
+
+              {/* Max Storage */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Max Storage (MB)
+                <label className={labelCls}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <HardDrive className="w-3 h-3" />
+                    Max Storage (MB)
+                  </span>
                 </label>
                 <input
                   type="number"
                   value={form.maxStorageMb}
                   onChange={(e) => setForm({ ...form, maxStorageMb: parseInt(e.target.value) || 50 })}
-                  className="input"
+                  className={inputCls}
                   min={50}
                   max={10000}
                 />
               </div>
+
+              {/* Moderation */}
+              <div>
+                <label className={labelCls}>
+                  <span className="inline-flex items-center gap-1.5">
+                    <ShieldCheck className="w-3 h-3" />
+                    Moderation
+                  </span>
+                </label>
+                <select
+                  value={form.moderationMode}
+                  onChange={(e) => setForm({ ...form, moderationMode: e.target.value as any })}
+                  className={inputCls}
+                >
+                  <option value="AUTO">Auto-approve</option>
+                  <option value="APPROVE_FIRST">Approve first</option>
+                </select>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Moderation</label>
-              <select
-                value={form.moderationMode}
-                onChange={(e) => setForm({ ...form, moderationMode: e.target.value as any })}
-                className="input"
+            {/* Guest Gallery toggle */}
+            <div className="flex items-center justify-between bg-surface-container-highest rounded-xl px-5 py-4 border border-outline-variant/30">
+              <div className="flex items-start gap-3">
+                <Eye className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-on-surface">Guest Gallery</p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Allow guests to browse approved photos
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.guestGalleryEnabled}
+                onClick={() => setForm({ ...form, guestGalleryEnabled: !form.guestGalleryEnabled })}
+                className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2 focus:ring-offset-surface-container-highest ${
+                  form.guestGalleryEnabled ? 'bg-primary' : 'bg-outline-variant'
+                }`}
               >
-                <option value="AUTO">Auto-approve</option>
-                <option value="APPROVE_FIRST">Approve first</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="galleryEnabled"
-                checked={form.guestGalleryEnabled}
-                onChange={(e) => setForm({ ...form, guestGalleryEnabled: e.target.checked })}
-                className="w-4 h-4 text-pine-700 rounded"
-              />
-              <label htmlFor="galleryEnabled" className="text-sm text-gray-700">
-                Enable guest gallery
-              </label>
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
+                    form.guestGalleryEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
           </div>
 
-          <div className="flex gap-3 justify-end">
-            <button type="button" onClick={() => navigate(-1)} className="btn-secondary">
-              Cancel
-            </button>
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving ? 'Saving...' : 'Save Settings'}
-            </button>
-          </div>
+          {/* ── Save button ─────────────────────────────── */}
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full py-4 rounded-xl text-sm font-bold text-white shadow-lg shadow-primary/20 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2"
+            style={{ background: 'linear-gradient(135deg, #c19cff, #9146ff)' }}
+          >
+            {saving ? (
+              <>
+                <Loader className="w-4 h-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save Settings'
+            )}
+          </button>
         </form>
+
+        {/* ── Danger Zone ──────────────────────────────── */}
+        <div className="bg-error/5 border border-error/20 rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertTriangle className="w-5 h-5 text-error" />
+            <h3 className="text-sm font-bold text-error uppercase tracking-wider">Danger Zone</h3>
+          </div>
+          <p className="text-xs text-on-surface-variant mb-5">
+            Permanently delete this event and all associated photos, guest sessions, and exports. This action cannot be undone.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowDeleteModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-error/10 text-error border border-error/20 hover:bg-error/20 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete Event
+          </button>
+        </div>
       </div>
+
+      {/* ── Delete confirmation modal ─────────────────── */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Dark overlay */}
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setShowDeleteModal(false)}
+          />
+
+          {/* Dialog */}
+          <div className="relative bg-surface-container-low rounded-2xl p-8 w-full max-w-md shadow-2xl shadow-black/50">
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(false)}
+              className="absolute top-4 right-4 p-2 rounded-xl text-on-surface-variant hover:bg-surface-container-highest transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Icon */}
+            <div className="w-12 h-12 rounded-2xl bg-error/10 border border-error/20 flex items-center justify-center mb-5">
+              <Trash2 className="w-5 h-5 text-error" />
+            </div>
+
+            <h3 className="text-xl font-headline font-bold text-on-surface mb-2">
+              Delete Event?
+            </h3>
+            <p className="text-sm text-on-surface-variant mb-8 leading-relaxed">
+              This will permanently remove all photos, guest sessions, and exports for this event.
+              <span className="font-semibold text-error"> This action cannot be undone.</span>
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 py-3 rounded-xl text-sm font-semibold text-on-surface bg-surface-container-highest hover:bg-surface-bright transition-colors border border-outline-variant/30"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteEvent}
+                disabled={saving}
+                className="flex-1 py-3 rounded-xl text-sm font-bold text-white bg-error hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {saving ? (
+                  <>
+                    <Loader className="w-4 h-4 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Delete Forever
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

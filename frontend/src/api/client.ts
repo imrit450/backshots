@@ -61,16 +61,19 @@ class ApiClient {
     });
 
     if (!res.ok) {
-      // If we get a 401 on a host-authenticated request, the token is stale.
-      // Clear it so the next ProtectedRoute check redirects to login.
-      if (res.status === 401 && !useGuest && this.hostToken) {
+      // If we get a 401 on a host-authenticated request, the token is likely stale.
+      // Clear it so the next ProtectedRoute check redirects to login – but avoid doing
+      // this for admin storage tooling, where we'd rather show a local error than
+      // bounce the user out of the Admin area.
+      const isAdminStoragePath =
+        path.startsWith('/admin/storage/config') ||
+        path.startsWith('/admin/storage/health') ||
+        path.startsWith('/admin/storage/list') ||
+        path.startsWith('/admin/storage/test');
+
+      if (res.status === 401 && !useGuest && this.hostToken && !isAdminStoragePath) {
         this.setHostToken(null);
-        // Redirect to login if we're not already there
-        if (!window.location.pathname.startsWith('/host/login') &&
-            !window.location.pathname.startsWith('/host/signup')) {
-          window.location.href = '/host/login';
-          throw new Error('Session expired. Please log in again.');
-        }
+        // Let the UI handle redirect based on auth state instead of forcing a full reload.
       }
 
       const error = await res.json().catch(() => ({ error: 'Request failed' }));
@@ -137,6 +140,23 @@ class ApiClient {
     return this.request<{ host: any }>('/auth/host/me');
   }
 
+  /**
+   * Exchange a Clerk session JWT for a Lumora backend JWT.
+   * The backend verifies the Clerk token, then upserts a Host row and
+   * returns its own short-lived JWT alongside the Host profile.
+   */
+  async clerkExchange(clerkToken: string) {
+    const data = await this.request<{ token: string; host: any }>(
+      '/auth/host/clerk',
+      {
+        method: 'POST',
+        body: JSON.stringify({ clerkToken }),
+      }
+    );
+    this.setHostToken(data.token);
+    return data;
+  }
+
   logout() {
     this.setHostToken(null);
   }
@@ -162,6 +182,23 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+  }
+
+  async deleteEvent(eventId: string) {
+    const token = this.getHostToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(`${API_BASE}/events/${eventId}`, {
+      method: 'DELETE',
+      headers,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `HTTP ${res.status}`);
+    }
+    // DELETE returns 204 No Content, so nothing to parse.
   }
 
   async uploadEventIcon(eventId: string, file: Blob) {
@@ -312,6 +349,24 @@ class ApiClient {
     );
   }
 
+  // Guest videos
+  async uploadVideo(eventId: string, file: Blob, durationSec: number, title?: string, description?: string) {
+    const formData = new FormData();
+    formData.append('video', file, 'clip.webm');
+    formData.append('durationSec', String(durationSec));
+    if (title) formData.append('title', title);
+    if (description) formData.append('description', description);
+
+    return this.request<{ video: any }>(
+      `/events/${eventId}/videos/upload`,
+      {
+        method: 'POST',
+        body: formData,
+      },
+      true
+    );
+  }
+
   // Admin
   async getAdminHosts() {
     return this.request<{ hosts: any[] }>('/admin/hosts');
@@ -335,6 +390,72 @@ class ApiClient {
   async adminDeleteEvent(eventId: string) {
     return this.request<{ success: boolean }>(`/admin/events/${eventId}`, {
       method: 'DELETE',
+    });
+  }
+
+  // Storage (Admin)
+  async getStorageHealth() {
+    return this.request<{ ok: boolean; storageType: string; [k: string]: any }>('/admin/storage/health');
+  }
+
+  async listStorageObjects(prefix: string, limit = 50, cursor?: string | null) {
+    const params = new URLSearchParams();
+    if (prefix) params.set('prefix', prefix);
+    params.set('limit', String(limit));
+    if (cursor) params.set('cursor', cursor);
+    return this.request<{ prefix: string; nextCursor: string | null; objects: any[] }>(
+      `/admin/storage/list?${params.toString()}`
+    );
+  }
+
+  async getStorageConfig() {
+    return this.request<{
+      storageType: 'filesystem' | 's3';
+      s3: null | {
+        bucket: string;
+        region: string;
+        endpoint: string;
+        accessKeyId: string;
+        secretAccessKey: string; // masked as "***" when set
+        publicUrl: string;
+        forcePathStyle: boolean;
+      };
+    }>('/admin/storage/config');
+  }
+
+  async saveStorageConfig(body: {
+    storageType: 'filesystem' | 's3';
+    s3?: {
+      bucket: string;
+      region: string;
+      endpoint?: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+      publicUrl: string;
+      forcePathStyle?: boolean;
+    };
+  }) {
+    return this.request<{ ok: boolean }>('/admin/storage/config', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
+  async testStorageConfig(body: {
+    storageType: 'filesystem' | 's3';
+    s3?: {
+      bucket: string;
+      region: string;
+      endpoint?: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
+      publicUrl: string;
+      forcePathStyle?: boolean;
+    };
+  }) {
+    return this.request<{ ok: boolean; sampleKey: string | null }>('/admin/storage/test', {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
   }
 }

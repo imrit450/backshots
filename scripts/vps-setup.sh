@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ═══════════════════════════════════════════════════════
-#  Backshots VPS Setup Script
+#  Lumora VPS Setup Script
 #  Run this ONCE on a fresh Ubuntu/Debian VPS to prepare
 #  for automated deployments.
 #
@@ -10,7 +10,7 @@ set -euo pipefail
 # ═══════════════════════════════════════════════════════
 
 REPO_URL="${1:-}"
-APP_DIR="${2:-/home/deploy/backshots}"
+APP_DIR="${2:-/home/deploy/lumora}"
 DEPLOY_USER="deploy"
 
 echo "── 1. System packages ──────────────────────────"
@@ -68,9 +68,9 @@ if [ ! -f "$ENV_FILE" ]; then
   PG_PASSWORD=$(openssl rand -hex 16)
   cat > "$ENV_FILE" <<ENVEOF
 # ── Production Environment ──────────────────────
-POSTGRES_USER=backshots
+POSTGRES_USER=lumora
 POSTGRES_PASSWORD=$PG_PASSWORD
-POSTGRES_DB=backshots
+POSTGRES_DB=lumora
 JWT_SECRET=$JWT_SECRET
 FRONTEND_URL=http://$(hostname -I | awk '{print $1}')
 BASE_URL=http://$(hostname -I | awk '{print $1}')

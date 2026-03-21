@@ -1,34 +1,37 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
-import { useToast } from '../components/Toast';
 import { api } from '../api/client';
 import {
   Image,
   Users,
-  Eye,
-  EyeOff,
+  HardDrive,
   Clock,
   CheckCircle,
-  XCircle,
   QrCode,
   Settings,
   Shield,
   Download,
   Images,
-  HardDrive,
+  Copy,
+  Check,
+  Trophy,
+  Radio,
+  CalendarDays,
+  Timer,
+  Camera,
+  Eye,
 } from 'lucide-react';
 
-const POLL_INTERVAL = 10_000; // 10 seconds
+const POLL_INTERVAL = 10_000;
 
 export default function EventDashboard() {
   const { eventId } = useParams<{ eventId: string }>();
-  const navigate = useNavigate();
-  const { addToast } = useToast();
   const [event, setEvent] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [qrData, setQrData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
   const lastPhotoCount = useRef<number | null>(null);
 
   // Initial load
@@ -49,41 +52,45 @@ export default function EventDashboard() {
       .finally(() => setLoading(false));
   }, [eventId]);
 
-  // Poll for new photos
+  // Poll for updated stats (display only — moderation toasts are fired globally by Layout)
   const pollStats = useCallback(async () => {
     if (!eventId) return;
     try {
       const data = await api.getEventStats(eventId);
-      const newCount = data.stats.totalPhotos;
-      const prevCount = lastPhotoCount.current;
-
-      if (prevCount !== null && newCount > prevCount) {
-        const diff = newCount - prevCount;
-        addToast({
-          type: 'photo',
-          message: `${diff} new photo${diff > 1 ? 's' : ''} uploaded!`,
-          duration: 6000,
-          onClick: () => navigate(`/host/events/${eventId}/moderation`),
-        });
-      }
-
-      lastPhotoCount.current = newCount;
+      lastPhotoCount.current = data.stats.totalPhotos;
       setStats(data.stats);
     } catch {
       // Silently fail polling
     }
-  }, [eventId, addToast, navigate]);
+  }, [eventId]);
 
   useEffect(() => {
     const interval = setInterval(pollStats, POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [pollStats]);
 
+  const handleCopy = () => {
+    if (!qrData?.eventUrl) return;
+    navigator.clipboard.writeText(qrData.eventUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const formatStorage = (bytes: number) => {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  };
+
+  const storagePercent =
+    stats && stats.maxStorageMb
+      ? Math.min(100, Math.round(((stats.storageUsedBytes || 0) / (stats.maxStorageMb * 1024 * 1024)) * 100))
+      : 0;
+
   if (loading) {
     return (
       <Layout showBack backTo="/host">
-        <div className="flex justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-pine-800 border-t-transparent" />
+        <div className="flex justify-center py-24">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
         </div>
       </Layout>
     );
@@ -92,227 +99,399 @@ export default function EventDashboard() {
   if (!event) {
     return (
       <Layout showBack backTo="/host">
-        <div className="text-center py-16 text-gray-500">Event not found</div>
+        <div className="text-center py-24 text-on-surface-variant">Event not found</div>
       </Layout>
     );
   }
 
-  const formatStorage = (bytes: number) => {
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
-  };
-
-  const statCards = [
-    {
-      label: `Photos (max ${stats?.maxPhotosTotal || '—'})`,
-      value: stats?.totalPhotos || 0,
-      icon: Image,
-      color: 'text-blue-600 bg-blue-50',
-    },
-    {
-      label: `Storage (max ${stats?.maxStorageMb || '—'} MB)`,
-      value: formatStorage(stats?.storageUsedBytes || 0),
-      icon: HardDrive,
-      color: 'text-indigo-600 bg-indigo-50',
-    },
-    {
-      label: 'Guests',
-      value: stats?.guestCount || 0,
-      icon: Users,
-      color: 'text-purple-600 bg-purple-50',
-    },
-    {
-      label: 'Approved',
-      value: stats?.approvedPhotos || 0,
-      icon: CheckCircle,
-      color: 'text-green-600 bg-green-50',
-    },
-    {
-      label: 'Pending',
-      value: stats?.pendingPhotos || 0,
-      icon: Clock,
-      color: 'text-yellow-600 bg-yellow-50',
-    },
-    {
-      label: 'Hidden',
-      value: stats?.hiddenPhotos || 0,
-      icon: EyeOff,
-      color: 'text-gray-600 bg-gray-50',
-    },
-    {
-      label: 'Rejected',
-      value: stats?.rejectedPhotos || 0,
-      icon: XCircle,
-      color: 'text-red-600 bg-red-50',
-    },
-  ];
-
   return (
-    <Layout title={event.title} showBack backTo="/host">
-      {/* Quick Actions */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-        <Link
-          to={`/host/events/${eventId}/moderation`}
-          className="card hover:shadow-md transition-shadow flex items-center gap-3 p-4"
-        >
-          <Shield className="w-8 h-8 text-pine-700" />
-          <div>
-            <div className="font-semibold text-sm text-gray-900">Moderate</div>
-            <div className="text-xs text-gray-500">Review photos</div>
-          </div>
-        </Link>
-        <Link
-          to={`/host/events/${eventId}/gallery`}
-          className="card hover:shadow-md transition-shadow flex items-center gap-3 p-4"
-        >
-          <Images className="w-8 h-8 text-green-500" />
-          <div>
-            <div className="font-semibold text-sm text-gray-900">Gallery</div>
-            <div className="text-xs text-gray-500">View all</div>
-          </div>
-        </Link>
-        <Link
-          to={`/host/events/${eventId}/settings`}
-          className="card hover:shadow-md transition-shadow flex items-center gap-3 p-4"
-        >
-          <Settings className="w-8 h-8 text-gray-500" />
-          <div>
-            <div className="font-semibold text-sm text-gray-900">Settings</div>
-            <div className="text-xs text-gray-500">Configure</div>
-          </div>
-        </Link>
-        <Link
-          to={`/host/events/${eventId}/export`}
-          className="card hover:shadow-md transition-shadow flex items-center gap-3 p-4"
-        >
-          <Download className="w-8 h-8 text-blue-500" />
-          <div>
-            <div className="font-semibold text-sm text-gray-900">Export</div>
-            <div className="text-xs text-gray-500">Download ZIP</div>
-          </div>
-        </Link>
-      </div>
+    <Layout title={event.title} subtitle="EVENT DASHBOARD" showBack backTo="/host">
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
-        {statCards.map((stat) => (
-          <div key={stat.label} className="card p-4">
-            <div className={`inline-flex p-2 rounded-lg ${stat.color} mb-2`}>
-              <stat.icon className="w-5 h-5" />
+      {/* ── Top section: Event summary + QR ─────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+
+        {/* LEFT — Event summary card */}
+        <div className="lg:col-span-2 bg-surface-container-low rounded-xl p-8 relative overflow-hidden">
+          {/* Decorative glow blob */}
+          <div
+            className="absolute -top-16 -right-16 w-64 h-64 rounded-full opacity-10 pointer-events-none"
+            style={{ background: 'radial-gradient(circle, #c19cff 0%, transparent 70%)' }}
+          />
+
+          {/* LIVE badge */}
+          {event.isActive && (
+            <div className="inline-flex items-center gap-2 bg-tertiary/10 text-tertiary border border-tertiary/30 px-3 py-1 rounded-full text-xs font-bold mb-5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-tertiary" />
+              </span>
+              LIVE NOW
             </div>
-            <div className="text-2xl font-bold text-gray-900">{stat.value}</div>
-            <div className="text-xs text-gray-500">{stat.label}</div>
-          </div>
-        ))}
-      </div>
+          )}
 
-      {/* QR Code & Event Info */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* QR Code Card */}
-        {qrData && (
-          <div className="card text-center">
-            {/* Event icon above QR */}
+          {/* Event icon + title */}
+          <div className="flex items-start gap-4 mb-8">
             {event.iconUrl && (
-              <div className="mb-4">
-                <img src={event.iconUrl} alt="" className="w-14 h-14 rounded-xl object-cover mx-auto border border-pine-50" />
-              </div>
+              <img
+                src={event.iconUrl}
+                alt=""
+                className="w-14 h-14 rounded-xl object-cover border border-outline-variant/40 flex-shrink-0"
+              />
             )}
-            <h2 className="font-semibold text-gray-900 mb-4 flex items-center justify-center gap-2">
-              <QrCode className="w-5 h-5" />
-              Share with Guests
+            <h2 className="text-4xl font-headline font-extrabold text-on-surface leading-tight">
+              {event.title}
             </h2>
-            <div className="inline-block bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-              <img src={qrData.qrCode} alt="Event QR Code" className="w-56 h-56" />
+          </div>
+
+          {/* Quick action buttons */}
+          <div className="flex flex-wrap gap-3">
+            <Link
+              to={`/host/events/${eventId}/gallery`}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
+              style={{ background: 'linear-gradient(135deg, #c19cff, #9146ff)' }}
+            >
+              <Images className="w-4 h-4" />
+              View Gallery
+            </Link>
+            <Link
+              to={`/host/events/${eventId}/livestream`}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-surface-container-highest text-on-surface hover:bg-surface-bright transition-colors"
+            >
+              <Radio className="w-4 h-4 text-secondary" />
+              Livestream
+            </Link>
+            <Link
+              to={`/host/events/${eventId}/moderation`}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-surface-container-highest text-on-surface hover:bg-surface-bright transition-colors"
+            >
+              <Shield className="w-4 h-4" />
+              Moderation
+              {(stats?.pendingPhotos || 0) > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 bg-error text-white rounded-full text-[10px] font-bold leading-none">
+                  {stats.pendingPhotos}
+                </span>
+              )}
+            </Link>
+            <Link
+              to={`/host/events/${eventId}/settings`}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-on-surface-variant border border-outline-variant/40 hover:bg-surface-container-highest hover:text-on-surface transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+              Settings
+            </Link>
+            <Link
+              to={`/host/events/${eventId}/export`}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-on-surface-variant border border-outline-variant/40 hover:bg-surface-container-highest hover:text-on-surface transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Export
+            </Link>
+          </div>
+        </div>
+
+        {/* RIGHT — QR Code card */}
+        <div className="bg-surface-container-low rounded-xl p-8 flex flex-col items-center text-center">
+          <div className="flex items-center gap-2 text-on-surface-variant text-xs font-bold uppercase tracking-widest mb-5">
+            <QrCode className="w-4 h-4" />
+            Share with Guests
+          </div>
+
+          {/* QR image */}
+          {qrData && (
+            <div className="bg-white p-4 rounded-xl shadow-lg shadow-black/30 mb-5">
+              <img src={qrData.qrCode} alt="Event QR Code" className="w-44 h-44" />
             </div>
-            <div className="mt-4">
-              <p className="text-sm text-gray-500 mb-2">Event Code</p>
-              <code className="text-2xl font-mono font-bold text-pine-700 tracking-wider">
+          )}
+
+          {/* Event code */}
+          {qrData && (
+            <div className="mb-5">
+              <p className="text-xs text-on-surface-variant mb-1 uppercase tracking-wider">Event Code</p>
+              <code className="text-2xl font-mono font-black text-primary tracking-[0.2em]">
                 {qrData.eventCode}
               </code>
             </div>
-            <div className="mt-4">
-              <p className="text-sm text-gray-500 mb-2">Share Link</p>
-              <div className="flex items-center gap-2 justify-center">
-                <code className="text-sm bg-gray-50 px-3 py-2 rounded-lg text-gray-700 break-all">
-                  {qrData.eventUrl}
-                </code>
-                <button
-                  onClick={() => navigator.clipboard.writeText(qrData.eventUrl)}
-                  className="btn-ghost text-sm flex-shrink-0"
-                >
-                  Copy
-                </button>
+          )}
+
+          {/* Share URL */}
+          {qrData && (
+            <div className="w-full bg-surface-container-highest px-4 py-2 rounded-lg flex items-center gap-3 border-b-2 border-outline-variant">
+              <span className="text-xs text-on-surface-variant truncate flex-1 text-left font-mono">
+                {qrData.eventUrl}
+              </span>
+              <button
+                onClick={handleCopy}
+                className="flex-shrink-0 p-1.5 rounded-lg hover:bg-surface-bright transition-colors text-on-surface-variant hover:text-primary"
+                title="Copy link"
+              >
+                {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Stats grid ───────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+
+        {/* Total Photos */}
+        <div className="bg-surface-container-low rounded-xl p-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Image className="w-4 h-4 text-primary" />
+            </div>
+            {(stats?.totalPhotos - (lastPhotoCount.current || stats?.totalPhotos) > 0) && (
+              <span className="text-xs font-semibold text-secondary">
+                +{stats.totalPhotos - (lastPhotoCount.current || stats.totalPhotos)} New
+              </span>
+            )}
+          </div>
+          <div className="text-5xl font-headline font-black text-on-surface leading-none mb-1">
+            {stats?.totalPhotos || 0}
+          </div>
+          <div className="text-xs text-on-surface-variant">
+            Total Photos
+            {stats?.maxPhotosTotal && (
+              <span className="ml-1 opacity-60">/ {stats.maxPhotosTotal}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Storage */}
+        <div className="bg-surface-container-low rounded-xl p-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <HardDrive className="w-4 h-4 text-primary" />
+            </div>
+            <span className="text-xs font-semibold text-on-surface-variant">{storagePercent}%</span>
+          </div>
+          <div className="text-5xl font-headline font-black text-on-surface leading-none mb-1">
+            {formatStorage(stats?.storageUsedBytes || 0)}
+          </div>
+          <div className="text-xs text-on-surface-variant mb-3">
+            Storage Used
+            {stats?.maxStorageMb && (
+              <span className="ml-1 opacity-60">/ {stats.maxStorageMb} MB</span>
+            )}
+          </div>
+          <div className="h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+            <div
+              className="bg-primary h-full rounded-full transition-all duration-500"
+              style={{ width: `${storagePercent}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Total Guests */}
+        <div className="bg-surface-container-low rounded-xl p-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 rounded-lg bg-secondary/10">
+              <Users className="w-4 h-4 text-secondary" />
+            </div>
+          </div>
+          <div className="text-5xl font-headline font-black text-on-surface leading-none mb-1">
+            {stats?.guestCount || 0}
+          </div>
+          <div className="text-xs text-on-surface-variant">Total Guests</div>
+        </div>
+
+        {/* Queue */}
+        <div className="bg-surface-container-low rounded-xl p-6">
+          <div className="flex items-center justify-between mb-3">
+            <div className="p-2 rounded-lg bg-tertiary/10">
+              <Clock className="w-4 h-4 text-tertiary" />
+            </div>
+          </div>
+          <div className="flex items-end gap-3 mb-1">
+            <div className="text-5xl font-headline font-black text-on-surface leading-none">
+              {stats?.approvedPhotos || 0}
+            </div>
+            {(stats?.pendingPhotos || 0) > 0 && (
+              <div className="mb-1 flex items-center gap-1">
+                <span className="text-lg font-headline font-black text-error leading-none">
+                  {stats.pendingPhotos}
+                </span>
+                <span className="text-xs text-error opacity-80">pending</span>
+              </div>
+            )}
+          </div>
+          <div className="text-xs text-on-surface-variant">
+            Approved
+            {(stats?.pendingPhotos || 0) === 0 && (
+              <span className="ml-1.5 text-primary/60">all clear</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Bottom section: Contributors + Event Info ──── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* Top Contributors */}
+        <div className="lg:col-span-2 bg-surface-container-low rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <Trophy className="w-5 h-5 text-secondary" />
+            <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider">Top Contributors</h3>
+          </div>
+
+          {stats?.topGuests && stats.topGuests.length > 0 ? (
+            <div className="space-y-1">
+              {stats.topGuests.slice(0, 8).map((guest: any, i: number) => {
+                const maxCount = stats.topGuests[0]?.photoCount || 1;
+                const barWidth = Math.round((guest.photoCount / maxCount) * 100);
+                return (
+                  <div
+                    key={i}
+                    className="group flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-surface-container-highest transition-colors cursor-default"
+                  >
+                    {/* Rank */}
+                    <span className={`w-6 text-center text-xs font-black font-headline flex-shrink-0 ${
+                      i === 0 ? 'text-secondary' : i === 1 ? 'text-on-surface-variant' : i === 2 ? 'text-tertiary/70' : 'text-on-surface-variant/40'
+                    }`}>
+                      {i + 1}
+                    </span>
+
+                    {/* Name + bar */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium text-on-surface truncate">
+                          {guest.displayName || 'Anonymous'}
+                        </span>
+                        <span className="text-xs font-bold text-on-surface-variant ml-3 flex-shrink-0">
+                          {guest.photoCount} <span className="font-normal opacity-60">photos</span>
+                        </span>
+                      </div>
+                      <div className="h-1 bg-surface-container-highest rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-700"
+                          style={{
+                            width: `${barWidth}%`,
+                            background: i === 0
+                              ? 'linear-gradient(90deg, #ff7441, #ff9a6c)'
+                              : 'linear-gradient(90deg, #c19cff, #9146ff)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <Camera className="w-10 h-10 text-on-surface-variant/20 mb-3" />
+              <p className="text-sm text-on-surface-variant">No photos yet</p>
+              <p className="text-xs text-on-surface-variant/50 mt-1">Contributors will appear here once guests start uploading</p>
+            </div>
+          )}
+        </div>
+
+        {/* Event Info */}
+        <div className="bg-surface-container-low rounded-xl p-6">
+          <div className="flex items-center gap-2 mb-6">
+            <Radio className="w-5 h-5 text-primary" />
+            <h3 className="text-sm font-bold text-on-surface uppercase tracking-wider">Event Info</h3>
+          </div>
+
+          <div className="space-y-4">
+            {/* Status */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-on-surface-variant">Status</span>
+              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
+                event.isActive
+                  ? 'bg-tertiary/10 text-tertiary'
+                  : 'bg-surface-container-highest text-on-surface-variant'
+              }`}>
+                {event.isActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse" />
+                )}
+                {event.isActive ? 'Active' : 'Inactive'}
+              </span>
+            </div>
+
+            {/* Date */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-on-surface-variant flex items-center gap-1.5">
+                <CalendarDays className="w-3.5 h-3.5" />
+                Date
+              </span>
+              <span className="text-xs font-medium text-on-surface text-right max-w-[55%]">
+                {new Date(event.startDatetime).toLocaleString()}
+              </span>
+            </div>
+
+            {/* Reveal Delay */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-on-surface-variant flex items-center gap-1.5">
+                <Timer className="w-3.5 h-3.5" />
+                Reveal Delay
+              </span>
+              <span className="text-xs font-medium text-on-surface">
+                {event.revealDelayHours === 0 ? 'Immediate' : `${event.revealDelayHours}h`}
+              </span>
+            </div>
+
+            {/* Max Photos/Guest */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-on-surface-variant flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5" />
+                Max / Guest
+              </span>
+              <span className="text-xs font-medium text-on-surface">{event.maxPhotosPerGuest}</span>
+            </div>
+
+            {/* Moderation */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-on-surface-variant flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5" />
+                Moderation
+              </span>
+              <span className="text-xs font-medium text-on-surface">
+                {event.moderationMode === 'AUTO' ? 'Auto-approve' : 'Approve first'}
+              </span>
+            </div>
+
+            {/* Guest Gallery */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-on-surface-variant flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5" />
+                Guest Gallery
+              </span>
+              <span className={`text-xs font-medium ${event.guestGalleryEnabled ? 'text-primary' : 'text-on-surface-variant'}`}>
+                {event.guestGalleryEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+
+            {/* Divider */}
+            <div className="h-px bg-outline-variant/30 my-2" />
+
+            {/* Additional stats row */}
+            <div className="grid grid-cols-3 gap-2 pt-1">
+              <div className="text-center">
+                <div className="text-xl font-headline font-black text-on-surface">{stats?.approvedPhotos || 0}</div>
+                <div className="text-[10px] text-on-surface-variant mt-0.5">Approved</div>
+              </div>
+              <div className="text-center">
+                <div className={`text-xl font-headline font-black ${(stats?.pendingPhotos || 0) > 0 ? 'text-error' : 'text-on-surface'}`}>
+                  {stats?.pendingPhotos || 0}
+                </div>
+                <div className="text-[10px] text-on-surface-variant mt-0.5">Pending</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-headline font-black text-on-surface">{stats?.hiddenPhotos || 0}</div>
+                <div className="text-[10px] text-on-surface-variant mt-0.5">Hidden</div>
               </div>
             </div>
           </div>
-        )}
 
-        {/* Event Info Card */}
-        <div className="card">
-          <h2 className="font-semibold text-gray-900 mb-4">Event Details</h2>
-          <dl className="space-y-3">
-            <div className="flex justify-between">
-              <dt className="text-sm text-gray-500">Status</dt>
-              <dd>
-                <span
-                  className={`text-xs px-2 py-0.5 rounded-full ${
-                    event.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                  }`}
-                >
-                  {event.isActive ? 'Active' : 'Inactive'}
-                </span>
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-sm text-gray-500">Date</dt>
-              <dd className="text-sm font-medium">
-                {new Date(event.startDatetime).toLocaleString()}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-sm text-gray-500">Reveal Delay</dt>
-              <dd className="text-sm font-medium">
-                {event.revealDelayHours === 0
-                  ? 'Immediate'
-                  : `${event.revealDelayHours} hour(s)`}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-sm text-gray-500">Max Photos/Guest</dt>
-              <dd className="text-sm font-medium">{event.maxPhotosPerGuest}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-sm text-gray-500">Moderation</dt>
-              <dd className="text-sm font-medium">
-                {event.moderationMode === 'AUTO' ? 'Auto-approve' : 'Approve first'}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-sm text-gray-500">Guest Gallery</dt>
-              <dd className="text-sm font-medium">
-                {event.guestGalleryEnabled ? 'Enabled' : 'Disabled'}
-              </dd>
-            </div>
-          </dl>
-
-          {/* Top Guests */}
-          {stats?.topGuests && stats.topGuests.length > 0 && (
-            <div className="mt-6 pt-6 border-t border-gray-100">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Top Contributors</h3>
-              <div className="space-y-2">
-                {stats.topGuests.slice(0, 5).map((guest: any, i: number) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">
-                      {guest.displayName || 'Anonymous'}
-                    </span>
-                    <span className="text-sm font-medium text-gray-900">
-                      {guest.photoCount} photos
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Settings shortcut */}
+          <Link
+            to={`/host/events/${eventId}/settings`}
+            className="mt-6 flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-xs font-semibold text-on-surface-variant border border-outline-variant/30 hover:bg-surface-container-highest hover:text-on-surface transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            Edit Settings
+          </Link>
         </div>
       </div>
     </Layout>

@@ -50,14 +50,14 @@ describe('Auth API', () => {
       const res = await request(app)
         .post('/v1/auth/host/signup')
         .send({
-          email: 'test@backshots.app',
+          email: 'test@lumora.app',
           encryptedPassword: encryptPassword('password123'),
           displayName: 'Test Host',
         });
 
       expect(res.status).toBe(201);
       expect(res.body.token).toBeDefined();
-      expect(res.body.host.email).toBe('test@backshots.app');
+      expect(res.body.host.email).toBe('test@lumora.app');
       expect(res.body.host.displayName).toBe('Test Host');
       hostToken = res.body.token;
     });
@@ -66,7 +66,7 @@ describe('Auth API', () => {
       const res = await request(app)
         .post('/v1/auth/host/signup')
         .send({
-          email: 'test@backshots.app',
+          email: 'test@lumora.app',
           encryptedPassword: encryptPassword('password456'),
           displayName: 'Another Host',
         });
@@ -78,7 +78,7 @@ describe('Auth API', () => {
       const res = await request(app)
         .post('/v1/auth/host/signup')
         .send({
-          email: 'new@backshots.app',
+          email: 'new@lumora.app',
           encryptedPassword: encryptPassword('123'),
           displayName: 'Short Pass Host',
         });
@@ -92,20 +92,20 @@ describe('Auth API', () => {
       const res = await request(app)
         .post('/v1/auth/host/login')
         .send({
-          email: 'test@backshots.app',
+          email: 'test@lumora.app',
           encryptedPassword: encryptPassword('password123'),
         });
 
       expect(res.status).toBe(200);
       expect(res.body.token).toBeDefined();
-      expect(res.body.host.email).toBe('test@backshots.app');
+      expect(res.body.host.email).toBe('test@lumora.app');
     });
 
     it('should reject invalid password', async () => {
       const res = await request(app)
         .post('/v1/auth/host/login')
         .send({
-          email: 'test@backshots.app',
+          email: 'test@lumora.app',
           encryptedPassword: encryptPassword('wrongpassword'),
         });
 
@@ -116,7 +116,7 @@ describe('Auth API', () => {
       const res = await request(app)
         .post('/v1/auth/host/login')
         .send({
-          email: 'nonexistent@backshots.app',
+          email: 'nonexistent@lumora.app',
           encryptedPassword: encryptPassword('password123'),
         });
 
@@ -129,7 +129,7 @@ describe('Auth API', () => {
       const loginRes = await request(app)
         .post('/v1/auth/host/login')
         .send({
-          email: 'test@backshots.app',
+          email: 'test@lumora.app',
           encryptedPassword: encryptPassword('password123'),
         });
       expect(loginRes.status).toBe(200);
@@ -140,7 +140,7 @@ describe('Auth API', () => {
         .set('Authorization', `Bearer ${freshToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.host.email).toBe('test@backshots.app');
+      expect(res.body.host.email).toBe('test@lumora.app');
     });
 
     it('should reject without token', async () => {
