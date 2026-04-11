@@ -17,6 +17,7 @@ const router = Router();
 
 const createEventSchema = z.object({
   title: z.string().min(1).max(200),
+  location: z.string().max(300).optional(),
   startDatetime: z.string().datetime(),
   timezone: z.string().default('UTC'),
   revealDelayHours: z.number().int().min(0).max(168).default(0),
@@ -33,6 +34,7 @@ const createEventSchema = z.object({
 
 const updateEventSchema = z.object({
   title: z.string().min(1).max(200).optional(),
+  location: z.string().max(300).optional(),
   startDatetime: z.string().datetime().optional(),
   timezone: z.string().optional(),
   revealDelayHours: z.number().int().min(0).max(168).optional(),
@@ -90,6 +92,7 @@ router.post('/', authenticateHost, asyncHandler(async (req: Request, res: Respon
     data: {
       hostId: req.hostUser!.hostId,
       title: body.title,
+      location: body.location ?? null,
       startDatetime: new Date(body.startDatetime),
       timezone: body.timezone,
       revealDelayHours: body.revealDelayHours,
@@ -379,6 +382,7 @@ function formatEvent(event: any) {
     id: event.id,
     hostId: event.hostId,
     title: event.title,
+    location: event.location ?? null,
     iconUrl: event.iconUrl,
     startDatetime: event.startDatetime.toISOString(),
     timezone: event.timezone,

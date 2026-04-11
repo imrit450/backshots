@@ -1,10 +1,20 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { LogoWordmark } from '../components/Logo';
 
-const PHOTO_POLL_MS = 6_000;
+const POLL_MS = 6_000;
 const CAROUSEL_INTERVAL_MS = 5_000;
+
+type MediaItem = ({ _type: 'photo' } | { _type: 'video' }) & Record<string, any>;
+
+function mergeMedia(photos: any[], videos: any[]): MediaItem[] {
+  const p = photos.map((x) => ({ _type: 'photo' as const, ...x }));
+  const v = videos.map((x) => ({ _type: 'video' as const, ...x }));
+  return [...p, ...v].sort(
+    (a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime()
+  );
+}
 
 export default function Livestream() {
   const { eventId } = useParams<{ eventId: string }>();
@@ -12,14 +22,13 @@ export default function Livestream() {
   const [event, setEvent] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
   const [qrData, setQrData] = useState<any>(null);
-  const [photos, setPhotos] = useState<any[]>([]);
+  const [items, setItems] = useState<MediaItem[]>([]);
   const [heroIndex, setHeroIndex] = useState(0);
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
   const [sliding, setSliding] = useState(false);
   const [loading, setLoading] = useState(true);
   const heroTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const slideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Ref so the poll callback can read the current hero index without a stale closure
   const heroIndexRef = useRef(0);
 
   // Initial load
@@ -30,12 +39,13 @@ export default function Livestream() {
       api.getEventStats(eventId),
       api.getEventQR(eventId),
       api.getPhotos(eventId, { status: 'APPROVED', limit: '20' }),
+      api.getVideos(eventId),
     ])
-      .then(([eventData, statsData, qrRes, photosData]) => {
+      .then(([eventData, statsData, qrRes, photosData, videosData]) => {
         setEvent(eventData.event);
         setStats(statsData.stats);
         setQrData(qrRes);
-        setPhotos(photosData.photos || []);
+        setItems(mergeMedia(photosData.photos || [], videosData.videos || []));
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -46,27 +56,25 @@ export default function Livestream() {
     heroIndexRef.current = heroIndex;
   }, [heroIndex]);
 
-  // Poll for new photos + stats
+  // Poll for new media + stats
   const poll = useCallback(async () => {
     if (!eventId) return;
     try {
-      const [statsData, photosData] = await Promise.all([
+      const [statsData, photosData, videosData] = await Promise.all([
         api.getEventStats(eventId),
         api.getPhotos(eventId, { status: 'APPROVED', limit: '20' }),
+        api.getVideos(eventId),
       ]);
       setStats(statsData.stats);
 
-      const incoming: any[] = photosData.photos || [];
-      setPhotos((current) => {
-        const currentIds = new Set(current.map((p) => p.id));
-        const newPhotos = incoming.filter((p) => !currentIds.has(p.id));
-        if (newPhotos.length === 0) return current;
-
-        // Slot new photos in right after the "next" photo so they appear
-        // 2nd in the upcoming queue — not at the far end of the rotation.
+      const incoming = mergeMedia(photosData.photos || [], videosData.videos || []);
+      setItems((current) => {
+        const currentIds = new Set(current.map((i) => i.id));
+        const newItems = incoming.filter((i) => !currentIds.has(i.id));
+        if (newItems.length === 0) return current;
         const insertAt = Math.min(heroIndexRef.current + 2, current.length);
         const updated = [...current];
-        updated.splice(insertAt, 0, ...newPhotos);
+        updated.splice(insertAt, 0, ...newItems);
         return updated;
       });
     } catch {
@@ -75,7 +83,7 @@ export default function Livestream() {
   }, [eventId]);
 
   useEffect(() => {
-    const interval = setInterval(poll, PHOTO_POLL_MS);
+    const interval = setInterval(poll, POLL_MS);
     return () => clearInterval(interval);
   }, [poll]);
 
@@ -95,10 +103,10 @@ export default function Livestream() {
 
   // Auto-advance hero carousel
   useEffect(() => {
-    if (photos.length < 2) return;
+    if (items.length < 2) return;
     heroTimerRef.current = setInterval(() => {
       setHeroIndex((i) => {
-        const next = (i + 1) % photos.length;
+        const next = (i + 1) % items.length;
         setPrevIndex(i);
         setSliding(true);
         if (slideTimerRef.current) clearTimeout(slideTimerRef.current);
@@ -112,22 +120,20 @@ export default function Livestream() {
     return () => {
       if (heroTimerRef.current) clearInterval(heroTimerRef.current);
     };
-  }, [photos.length]);
+  }, [items.length]);
 
-  // Reset hero index if photos array shrinks
+  // Reset hero index if items array shrinks
   useEffect(() => {
-    if (heroIndex >= photos.length && photos.length > 0) {
+    if (heroIndex >= items.length && items.length > 0) {
       setHeroIndex(0);
     }
-  }, [photos.length, heroIndex]);
+  }, [items.length, heroIndex]);
 
-  const n = photos.length;
-  const heroPhoto   = n > 0 ? photos[heroIndex] : null;
-  const leftPhoto   = n > 1 ? photos[(heroIndex - 1 + n) % n] : null;
-  const rightPhoto  = n > 1 ? photos[(heroIndex + 1) % n] : null;
-  const prevPhoto   = prevIndex !== null ? (photos[prevIndex] ?? null) : null;
-  // suppress unused warning — kept for ambient bg
-  void useMemo(() => photos.filter((p) => !p.hidden), [photos]);
+  const n = items.length;
+  const heroItem  = n > 0 ? items[heroIndex] : null;
+  const leftItem  = n > 1 ? items[(heroIndex - 1 + n) % n] : null;
+  const rightItem = n > 1 ? items[(heroIndex + 1) % n] : null;
+  const prevItem  = prevIndex !== null ? (items[prevIndex] ?? null) : null;
 
   if (loading) {
     return (
@@ -161,12 +167,12 @@ export default function Livestream() {
           to   { opacity: 1; filter: blur(0px); }
         }
       `}</style>
-      {/* ── Ambient blurred background from hero photo ── */}
-      {heroPhoto?.largeUrl ? (
+      {/* ── Ambient blurred background from hero item ── */}
+      {heroItem?._type === 'photo' && heroItem.largeUrl ? (
         <div
           className="absolute inset-0 z-0 transition-all duration-1000"
           style={{
-            backgroundImage: `url(${heroPhoto.largeUrl})`,
+            backgroundImage: `url(${heroItem.largeUrl})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             filter: 'blur(64px) brightness(0.28) saturate(3)',
@@ -209,19 +215,30 @@ export default function Livestream() {
         </div>
 
         <div className="flex items-center gap-8">
-          <div className="flex flex-col items-end">
-            <span
-              className="font-black"
-              style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: '#c19cff', fontSize: 22 }}
-            >
-              {(stats?.totalPhotos ?? 0).toLocaleString()}
-            </span>
-            <span
-              className="uppercase tracking-widest font-bold"
-              style={{ fontSize: 9, color: '#adaaaa' }}
-            >
-              Photos Captured
-            </span>
+          <div className="flex items-center gap-6">
+            <div className="flex flex-col items-end">
+              <span
+                className="font-black"
+                style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: '#c19cff', fontSize: 22 }}
+              >
+                {(stats?.totalPhotos ?? 0).toLocaleString()}
+              </span>
+              <span className="uppercase tracking-widest font-bold" style={{ fontSize: 9, color: '#adaaaa' }}>
+                Photos
+              </span>
+            </div>
+            <div style={{ width: 1, height: 28, background: 'rgba(72,72,71,0.4)' }} />
+            <div className="flex flex-col items-end">
+              <span
+                className="font-black"
+                style={{ fontFamily: 'Plus Jakarta Sans, sans-serif', color: '#ff819f', fontSize: 22 }}
+              >
+                {items.filter((i) => i._type === 'video').length}
+              </span>
+              <span className="uppercase tracking-widest font-bold" style={{ fontSize: 9, color: '#adaaaa' }}>
+                Videos
+              </span>
+            </div>
           </div>
 
           {/* Back to dashboard */}
@@ -257,16 +274,23 @@ export default function Livestream() {
             style={{
               height: '100%',
               aspectRatio: '3/4',
-              opacity: leftPhoto ? 0.38 : 0,
+              opacity: leftItem ? 0.38 : 0,
               transform: 'scale(0.9)',
               border: '1px solid rgba(72,72,71,0.2)',
               transition: 'opacity 0.6s ease',
             }}
           >
-            {leftPhoto && (
-              <img key={leftPhoto.id} src={leftPhoto.largeUrl} alt=""
-                className="absolute inset-0 w-full h-full object-cover"
-                style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }} />
+            {leftItem && (
+              leftItem._type === 'video' ? (
+                <video key={leftItem.id} src={leftItem.url}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }}
+                  autoPlay loop muted playsInline />
+              ) : (
+                <img key={leftItem.id} src={leftItem.largeUrl} alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }} />
+              )
             )}
           </div>
 
@@ -280,38 +304,75 @@ export default function Livestream() {
               boxShadow: '0 0 40px 6px rgba(145,70,255,0.18)',
             }}
           >
-            {heroPhoto ? (
+            {heroItem ? (
               <>
-                {/* Blurred fill for any aspect mismatch */}
-                <img
-                  src={heroPhoto.largeUrl}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-cover"
-                  style={{ filter: 'blur(20px) brightness(0.5)', transform: 'scale(1.1)' }}
-                />
-
-                {/* Outgoing photo */}
-                {prevPhoto && sliding && (
+                {/* Blurred fill background */}
+                {heroItem._type === 'photo' ? (
                   <img
-                    key={`prev-${prevPhoto.id}`}
-                    src={prevPhoto.largeUrl}
-                    alt=""
+                    src={heroItem.largeUrl} alt=""
                     className="absolute inset-0 w-full h-full object-cover"
-                    style={{ animation: 'slideOutLeft 0.6s cubic-bezier(0.4,0,0.2,1) forwards', zIndex: 2 }}
+                    style={{ filter: 'blur(20px) brightness(0.5)', transform: 'scale(1.1)' }}
+                  />
+                ) : (
+                  <div className="absolute inset-0" style={{ background: 'rgba(20,10,36,0.9)' }} />
+                )}
+
+                {/* Outgoing item */}
+                {prevItem && sliding && (
+                  prevItem._type === 'video' ? (
+                    <video
+                      key={`prev-${prevItem.id}`}
+                      src={prevItem.url}
+                      className="absolute inset-0 w-full h-full object-cover"
+                      style={{ animation: 'slideOutLeft 0.6s cubic-bezier(0.4,0,0.2,1) forwards', zIndex: 2 }}
+                      autoPlay loop muted playsInline
+                    />
+                  ) : (
+                    <img
+                      key={`prev-${prevItem.id}`}
+                      src={prevItem.largeUrl} alt=""
+                      className="absolute inset-0 w-full h-full object-cover"
+                      style={{ animation: 'slideOutLeft 0.6s cubic-bezier(0.4,0,0.2,1) forwards', zIndex: 2 }}
+                    />
+                  )
+                )}
+
+                {/* Incoming item */}
+                {heroItem._type === 'video' ? (
+                  <video
+                    key={heroItem.id}
+                    src={heroItem.url}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    style={{
+                      animation: sliding ? 'slideInRight 0.6s cubic-bezier(0.4,0,0.2,1) forwards' : 'none',
+                      zIndex: 3,
+                    }}
+                    autoPlay loop muted playsInline
+                  />
+                ) : (
+                  <img
+                    key={heroItem.id}
+                    src={heroItem.largeUrl} alt=""
+                    className="absolute inset-0 w-full h-full object-cover"
+                    style={{
+                      animation: sliding ? 'slideInRight 0.6s cubic-bezier(0.4,0,0.2,1) forwards' : 'none',
+                      zIndex: 3,
+                    }}
                   />
                 )}
 
-                {/* Incoming photo */}
-                <img
-                  key={heroPhoto.id}
-                  src={heroPhoto.largeUrl}
-                  alt=""
-                  className="absolute inset-0 w-full h-full object-cover"
-                  style={{
-                    animation: sliding ? 'slideInRight 0.6s cubic-bezier(0.4,0,0.2,1) forwards' : 'none',
-                    zIndex: 3,
-                  }}
-                />
+                {/* Video badge */}
+                {heroItem._type === 'video' && (
+                  <div
+                    className="absolute top-4 left-4 z-20 flex items-center gap-1.5 px-3 py-1 rounded-full"
+                    style={{ background: 'rgba(255,129,159,0.85)', backdropFilter: 'blur(8px)' }}
+                  >
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', display: 'inline-block' }} />
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', fontFamily: 'Plus Jakarta Sans, sans-serif', letterSpacing: '0.05em' }}>
+                      VIDEO · {heroItem.durationSec}s
+                    </span>
+                  </div>
+                )}
 
                 {/* Corner accents */}
                 <div className="absolute top-0 left-0 pointer-events-none z-10"
@@ -332,21 +393,23 @@ export default function Livestream() {
                     <div>
                       <p className="font-bold text-sm text-white leading-tight"
                         style={{ fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
-                        {heroPhoto.guestName || 'Guest'}
+                        {heroItem.guestName || 'Guest'}
                       </p>
                       <p style={{ fontSize: 10, color: '#adaaaa' }}>
-                        Featured Moment
-                        {heroPhoto.capturedAt ? ` · ${new Date(heroPhoto.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                        {heroItem._type === 'video' ? 'Video Clip' : 'Featured Moment'}
+                        {heroItem.capturedAt ? ` · ${new Date(heroItem.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
                       </p>
                     </div>
                     {/* Dots */}
-                    {photos.length > 1 && (
+                    {items.length > 1 && (
                       <div className="flex items-center gap-1.5">
-                        {photos.slice(0, 9).map((_, i) => (
+                        {items.slice(0, 9).map((item, i) => (
                           <button key={i} onClick={() => goToIndex(i)}
                             style={{
                               width: i === heroIndex ? 14 : 5, height: 5, borderRadius: 3, padding: 0, border: 'none', cursor: 'pointer',
-                              background: i === heroIndex ? '#c19cff' : 'rgba(255,255,255,0.2)',
+                              background: i === heroIndex
+                                ? (item._type === 'video' ? '#ff819f' : '#c19cff')
+                                : 'rgba(255,255,255,0.2)',
                               transition: 'all 0.3s',
                             }}
                           />
@@ -360,7 +423,7 @@ export default function Livestream() {
               <div className="w-full h-full flex flex-col items-center justify-center gap-3"
                 style={{ background: 'rgba(19,19,19,0.85)' }}>
                 <span style={{ fontSize: 40, opacity: 0.2 }}>📷</span>
-                <p style={{ color: '#adaaaa', fontSize: 13 }}>Waiting for approved photos...</p>
+                <p style={{ color: '#adaaaa', fontSize: 13 }}>Waiting for approved media...</p>
               </div>
             )}
           </div>
@@ -371,16 +434,23 @@ export default function Livestream() {
             style={{
               height: '100%',
               aspectRatio: '3/4',
-              opacity: rightPhoto ? 0.38 : 0,
+              opacity: rightItem ? 0.38 : 0,
               transform: 'scale(0.9)',
               border: '1px solid rgba(72,72,71,0.2)',
               transition: 'opacity 0.6s ease',
             }}
           >
-            {rightPhoto && (
-              <img key={rightPhoto.id} src={rightPhoto.largeUrl} alt=""
-                className="absolute inset-0 w-full h-full object-cover"
-                style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }} />
+            {rightItem && (
+              rightItem._type === 'video' ? (
+                <video key={rightItem.id} src={rightItem.url}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }}
+                  autoPlay loop muted playsInline />
+              ) : (
+                <img key={rightItem.id} src={rightItem.largeUrl} alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                  style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }} />
+              )
             )}
           </div>
         </div>
@@ -439,7 +509,7 @@ export default function Livestream() {
         </span>
         <span style={{ width: 1, height: 14, background: 'rgba(72,72,71,0.4)', display: 'inline-block' }} />
         <span style={{ fontSize: 10, color: '#adaaaa' }}>
-          Auto-syncing every {PHOTO_POLL_MS / 1000}s
+          Auto-syncing every {POLL_MS / 1000}s
         </span>
       </div>
     </div>

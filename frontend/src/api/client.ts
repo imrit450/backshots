@@ -233,6 +233,11 @@ class ApiClient {
     return this.request<{ stats: any }>(`/events/${eventId}/stats`);
   }
 
+  // Videos (Host)
+  async getVideos(eventId: string) {
+    return this.request<{ videos: any[] }>(`/events/${eventId}/videos`);
+  }
+
   // Photos (Host)
   async getPhotos(eventId: string, params?: Record<string, string>) {
     const query = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -253,6 +258,13 @@ class ApiClient {
 
   async moderatePhoto(eventId: string, photoId: string, data: { hidden?: boolean; status?: string }) {
     return this.request<{ photo: any }>(`/events/${eventId}/photos/${photoId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async moderateVideo(eventId: string, videoId: string, data: { hidden?: boolean; status?: string }) {
+    return this.request<{ video: any }>(`/events/${eventId}/videos/${videoId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
@@ -365,6 +377,15 @@ class ApiClient {
       },
       true
     );
+  }
+
+  // Memories
+  async getMyMemories() {
+    return this.request<{ memories: any[] }>('/host/memories');
+  }
+
+  async getMemory(sessionId: string) {
+    return this.request<{ memory: any }>(`/host/memories/${sessionId}`);
   }
 
   // Admin

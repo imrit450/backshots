@@ -12,8 +12,10 @@ import Moderation from './host/Moderation';
 import HostGallery from './host/Gallery';
 import ExportPage from './host/Export';
 import Livestream from './host/Livestream';
+import Dashboard from './host/Dashboard';
 import Admin from './host/Admin';
 import Pricing from './host/Pricing';
+import Memories from './host/Memories';
 import MarketingLanding from './pages/MarketingLanding';
 import HowItWorks from './pages/HowItWorks';
 
@@ -51,6 +53,14 @@ export default function App() {
       <Route path="/host/signup" element={<Signup />} />
       <Route
         path="/host"
+        element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/host/events"
         element={
           <ProtectedRoute>
             <EventList />
@@ -127,6 +137,15 @@ export default function App() {
         element={
           <ProtectedRoute>
             <Pricing />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/host/memories"
+        element={
+          <ProtectedRoute>
+            <Memories />
           </ProtectedRoute>
         }
       />

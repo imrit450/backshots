@@ -19,6 +19,7 @@ model Host {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   events          Event[]
+  guestSessions   GuestSession[]
 
   @@map("hosts")
 }
@@ -27,6 +28,7 @@ model Event {
   id                  String         @id @default(uuid())
   hostId              String         @map("host_id")
   title               String
+  location            String?
   iconUrl             String?        @map("icon_url")
   startDatetime       DateTime       @map("start_datetime")
   timezone            String         @default("UTC")
@@ -57,6 +59,7 @@ model Event {
 model GuestSession {
   id           String   @id @default(uuid())
   eventId      String   @map("event_id")
+  hostId       String?  @map("host_id")
   deviceId     String?  @map("device_id")
   displayName  String   @map("display_name")
   phoneNumber  String?  @map("phone_number")
@@ -66,6 +69,7 @@ model GuestSession {
   createdAt    DateTime @default(now()) @map("created_at")
 
   event  Event   @relation(fields: [eventId], references: [id])
+  host   Host?   @relation(fields: [hostId], references: [id])
   photos Photo[]
   videos Video[]
 
@@ -88,7 +92,7 @@ model Photo {
   thumbUrl       String?  @map("thumb_url")
   filterApplied  String?  @map("filter_applied")
   fileSize       Int      @default(0) @map("file_size")
-  qualityScore   Int?     @map("quality_score")
+  qualityScore   Float?   @map("quality_score")
   qualityIssues  String?  @map("quality_issues")
   createdAt      DateTime @default(now()) @map("created_at")
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { api } from '../api/client';
+import { EVENT_THEMES } from '../config/themes';
 import {
   Image,
   Users,
@@ -21,7 +22,207 @@ import {
   Timer,
   Camera,
   Eye,
+  Share2,
+  MapPin,
 } from 'lucide-react';
+
+// ── Share card generator ────────────────────────────────────────────
+function drawSparkStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number) {
+  const s = size;
+  const sx = cx - s / 2;
+  const sy = cy - s / 2;
+  const pt = (x: number, y: number): [number, number] => [sx + (x / 200) * s, sy + (y / 200) * s];
+
+  const grad = ctx.createLinearGradient(sx, sy, sx + s, sy + s);
+  grad.addColorStop(0, '#FFD700');
+  grad.addColorStop(0.5, '#FF819F');
+  grad.addColorStop(1, '#C19CFF');
+
+  ctx.beginPath();
+  ctx.moveTo(...pt(100, 0));
+  ctx.lineTo(...pt(130, 70));
+  ctx.lineTo(...pt(200, 100));
+  ctx.lineTo(...pt(130, 130));
+  ctx.lineTo(...pt(100, 200));
+  ctx.lineTo(...pt(70, 130));
+  ctx.lineTo(...pt(0, 100));
+  ctx.lineTo(...pt(70, 70));
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, (30 / 200) * s, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fill();
+
+  const er = (4 / 200) * s;
+  const eo = (10 / 200) * s;
+  ctx.fillStyle = 'white';
+  ctx.beginPath(); ctx.arc(cx - eo, cy, er, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + eo, cy, er, 0, Math.PI * 2); ctx.fill();
+}
+
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width <= maxWidth) {
+      line = test;
+    } else {
+      if (line) lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// Parse the two dominant colors from a CSS linear-gradient string
+function parseGradientColors(cssGradient: string): [string, string] {
+  const matches = cssGradient.match(/#[0-9a-fA-F]{3,6}/g);
+  if (matches && matches.length >= 2) return [matches[0], matches[matches.length - 1]];
+  return ['#1a0e2e', '#0d0d1a'];
+}
+
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+async function generateShareCard(event: any, qrData: any): Promise<string> {
+  const W = 720, H = 1280;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+
+  // ── Theme colors ──────────────────────────────────────────────
+  const theme = EVENT_THEMES[event.theme] || EVENT_THEMES.classic;
+  const [bgFrom, bgTo] = parseGradientColors(theme.bgGradient);
+  const accentColor = theme.accent;
+
+  // Background using event theme
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, bgFrom);
+  bg.addColorStop(1, bgTo);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle radial glow using theme accent
+  const glowRgb = parseInt(accentColor.slice(1), 16);
+  const glowR = (glowRgb >> 16) & 255;
+  const glowG = (glowRgb >> 8) & 255;
+  const glowB = glowRgb & 255;
+  const glow = ctx.createRadialGradient(W / 2, H * 0.5, 0, W / 2, H * 0.5, 400);
+  glow.addColorStop(0, `rgba(${glowR},${glowG},${glowB},0.12)`);
+  glow.addColorStop(1, 'transparent');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── Branding top ──────────────────────────────────────────────
+  drawSparkStar(ctx, W / 2, 96, 72);
+
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 34px "Plus Jakarta Sans", system-ui, sans-serif';
+  const lGrad = ctx.createLinearGradient(W / 2 - 70, 0, W / 2 + 70, 0);
+  lGrad.addColorStop(0, '#FFD700');
+  lGrad.addColorStop(0.5, '#FF819F');
+  lGrad.addColorStop(1, '#C19CFF');
+  ctx.fillStyle = lGrad;
+  ctx.fillText('Lumora', W / 2, 174);
+
+  // ── Thin separator ────────────────────────────────────────────
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(80, 198); ctx.lineTo(W - 80, 198); ctx.stroke();
+
+  // ── Event title ───────────────────────────────────────────────
+  ctx.font = 'bold 58px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.fillStyle = '#ffffff';
+  const titleLines = wrapText(ctx, event.title || 'Event', W - 100);
+  const titleLineH = 70;
+  let cursorY = 272;
+  for (const line of titleLines.slice(0, 3)) {
+    ctx.fillText(line, W / 2, cursorY);
+    cursorY += titleLineH;
+  }
+
+  // ── Date ──────────────────────────────────────────────────────
+  const dateStr = new Date(event.startDatetime).toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+  ctx.font = '26px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.50)';
+  ctx.fillText(dateStr, W / 2, cursorY + 8);
+  cursorY += 8 + 32;
+
+  // ── Location ──────────────────────────────────────────────────
+  if (event.location) {
+    ctx.font = '24px "Plus Jakarta Sans", system-ui, sans-serif';
+    ctx.fillStyle = accentColor + 'cc';
+    ctx.fillText(`📍 ${event.location}`, W / 2, cursorY + 4);
+    cursorY += 4 + 28;
+  }
+
+  // ── QR card ───────────────────────────────────────────────────
+  const qrCardSize = 360;
+  const qrCardX = (W - qrCardSize) / 2;
+  const qrCardY = cursorY + 52;
+
+  ctx.fillStyle = '#ffffff';
+  roundedRect(ctx, qrCardX, qrCardY, qrCardSize, qrCardSize, 20);
+  ctx.fill();
+
+  const qrImg = new window.Image();
+  await new Promise<void>((resolve) => {
+    qrImg.onload = () => resolve();
+    qrImg.onerror = () => resolve();
+    qrImg.src = qrData.qrCode;
+  });
+  const pad = 24;
+  ctx.drawImage(qrImg, qrCardX + pad, qrCardY + pad, qrCardSize - pad * 2, qrCardSize - pad * 2);
+
+  // ── "Scan to join" label above code ───────────────────────────
+  const belowCardY = qrCardY + qrCardSize + 36;
+  ctx.font = '18px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.40)';
+  ctx.fillText('SCAN TO JOIN', W / 2, belowCardY);
+
+  // ── Event code ────────────────────────────────────────────────
+  ctx.font = 'bold 52px "Plus Jakarta Sans", monospace, sans-serif';
+  const codeGrad = ctx.createLinearGradient(W / 2 - 120, 0, W / 2 + 120, 0);
+  codeGrad.addColorStop(0, accentColor);
+  codeGrad.addColorStop(1, accentColor + 'cc');
+  ctx.fillStyle = codeGrad;
+  ctx.fillText(qrData.eventCode, W / 2, belowCardY + 58);
+
+  // ── Bottom footer ─────────────────────────────────────────────
+  const footerY = H - 80;
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(80, footerY - 20); ctx.lineTo(W - 80, footerY - 20); ctx.stroke();
+
+  drawSparkStar(ctx, W / 2 - 80, footerY + 8, 26);
+  ctx.font = '19px "Plus Jakarta Sans", system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  ctx.textAlign = 'left';
+  ctx.fillText('Capture every moment with Lumora', W / 2 - 58, footerY + 13);
+  ctx.textAlign = 'center';
+
+  return canvas.toDataURL('image/png');
+}
 
 const POLL_INTERVAL = 10_000;
 
@@ -32,6 +233,7 @@ export default function EventDashboard() {
   const [qrData, setQrData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [generatingCard, setGeneratingCard] = useState(false);
   const lastPhotoCount = useRef<number | null>(null);
 
   // Initial load
@@ -74,6 +276,22 @@ export default function EventDashboard() {
     navigator.clipboard.writeText(qrData.eventUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleShareCard = async () => {
+    if (!event || !qrData || generatingCard) return;
+    setGeneratingCard(true);
+    try {
+      const dataUrl = await generateShareCard(event, qrData);
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `${event.title.replace(/\s+/g, '-').toLowerCase()}-invite.png`;
+      a.click();
+    } catch (err) {
+      console.error('Failed to generate share card', err);
+    } finally {
+      setGeneratingCard(false);
+    }
   };
 
   const formatStorage = (bytes: number) => {
@@ -215,7 +433,7 @@ export default function EventDashboard() {
 
           {/* Share URL */}
           {qrData && (
-            <div className="w-full bg-surface-container-highest px-4 py-2 rounded-lg flex items-center gap-3 border-b-2 border-outline-variant">
+            <div className="w-full bg-surface-container-highest px-4 py-2 rounded-lg flex items-center gap-3 border-b-2 border-outline-variant mb-4">
               <span className="text-xs text-on-surface-variant truncate flex-1 text-left font-mono">
                 {qrData.eventUrl}
               </span>
@@ -227,6 +445,22 @@ export default function EventDashboard() {
                 {copied ? <Check className="w-4 h-4 text-primary" /> : <Copy className="w-4 h-4" />}
               </button>
             </div>
+          )}
+
+          {/* Generate share card */}
+          {qrData && (
+            <button
+              onClick={handleShareCard}
+              disabled={generatingCard}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+            >
+              {generatingCard ? (
+                <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              ) : (
+                <Share2 className="w-4 h-4" />
+              )}
+              {generatingCard ? 'Generating…' : 'Download Invite Card'}
+            </button>
           )}
         </div>
       </div>
@@ -408,6 +642,19 @@ export default function EventDashboard() {
                 {event.isActive ? 'Active' : 'Inactive'}
               </span>
             </div>
+
+            {/* Location */}
+            {event.location && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-on-surface-variant flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5" />
+                  Location
+                </span>
+                <span className="text-xs font-medium text-on-surface text-right max-w-[55%]">
+                  {event.location}
+                </span>
+              </div>
+            )}
 
             {/* Date */}
             <div className="flex items-center justify-between">

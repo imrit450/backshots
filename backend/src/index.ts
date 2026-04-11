@@ -15,6 +15,7 @@ import galleryRoutes from './routes/gallery';
 import moderationRoutes from './routes/moderation';
 import exportRoutes from './routes/exports';
 import videoRoutes from './routes/videos';
+import memoriesRoutes from './routes/memories';
 import { initRuntimeConfig } from './services/runtimeConfig';
 
 export const prisma = new PrismaClient();
@@ -77,6 +78,7 @@ app.use('/v1/events', galleryRoutes);
 app.use('/v1/events', moderationRoutes);
 app.use('/v1/events', exportRoutes);
 app.use('/v1/events', videoRoutes);
+app.use('/v1/host/memories', memoriesRoutes);
 
 // Health check
 app.get('/health', (_req, res) => {

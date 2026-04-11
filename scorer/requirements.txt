@@ -1,0 +1,7 @@
+flask==3.0.3
+brisque==0.0.16
+libsvm-official==3.25.0
+scipy==1.11.4
+opencv-python-headless==4.9.0.80
+numpy==1.26.4
+Pillow==10.3.0

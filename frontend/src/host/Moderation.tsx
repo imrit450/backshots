@@ -19,6 +19,7 @@ import {
   ChevronRight,
   MoreVertical,
   Radio,
+  Play,
 } from 'lucide-react';
 
 const POLL_INTERVAL = 10_000;
@@ -63,6 +64,7 @@ export default function Moderation() {
   const { eventId } = useParams<{ eventId: string }>();
   const { addToast } = useToast();
   const [photos, setPhotos] = useState<any[]>([]);
+  const [videos, setVideos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
@@ -93,7 +95,7 @@ export default function Moderation() {
     if (selected.size === photos.length) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(photos.map((p) => p.id)));
+      setSelected(new Set(photos.map((p) => p.id))); // bulk select photos only
     }
   };
 
@@ -112,12 +114,25 @@ export default function Moderation() {
       if (filter === 'hidden') params.hidden = 'true';
       if (filter === 'rejected') params.status = 'REJECTED';
 
-      const data = await api.getPhotos(eventId, filter === 'low-quality' ? {} : params);
-      let fetched = data.photos;
+      const [photoData, videoData] = await Promise.all([
+        api.getPhotos(eventId, filter === 'low-quality' ? {} : params),
+        api.getVideos(eventId),
+      ]);
+
+      let fetched = photoData.photos;
       if (filter === 'low-quality') {
         fetched = fetched.filter((p: any) => p.qualityScore !== null && p.qualityScore < 50);
       }
       setPhotos(fetched);
+
+      // Apply same status/hidden filter to videos
+      let fetchedVideos = videoData.videos;
+      if (filter === 'pending') fetchedVideos = fetchedVideos.filter((v: any) => v.status === 'PENDING');
+      else if (filter === 'approved') fetchedVideos = fetchedVideos.filter((v: any) => v.status === 'APPROVED');
+      else if (filter === 'rejected') fetchedVideos = fetchedVideos.filter((v: any) => v.status === 'REJECTED');
+      else if (filter === 'hidden') fetchedVideos = fetchedVideos.filter((v: any) => v.hidden);
+      else if (filter === 'low-quality') fetchedVideos = []; // quality scoring is photos-only
+      setVideos(fetchedVideos);
 
     } catch (err) {
       console.error(err);
@@ -138,9 +153,9 @@ export default function Moderation() {
   }, [fetchPhotos, selectMode]);
 
   // ── Single action ────────────────────────────────────────────────────────
-  const handleAction = async (photoId: string, action: string) => {
+  const handleAction = async (itemId: string, action: string, isVideo = false) => {
     if (!eventId) return;
-    setActionInProgress(photoId + ':' + action);
+    setActionInProgress(itemId + ':' + action);
     setActionError(null);
     try {
       const data: any = {};
@@ -149,22 +164,28 @@ export default function Moderation() {
       if (action === 'hide') data.hidden = true;
       if (action === 'unhide') data.hidden = false;
 
-      const res = await api.moderatePhoto(eventId, photoId, data);
-
-      setPhotos((prev) =>
-        prev.map((p) => {
-          if (p.id !== photoId) return p;
-          return {
-            ...p,
-            status: res.photo.status ?? p.status,
-            hidden: res.photo.hidden ?? p.hidden,
-            capturedAt: res.photo.capturedAt ?? p.capturedAt,
-            thumbUrl: res.photo.thumbUrl ?? p.thumbUrl,
-            largeUrl: res.photo.largeUrl ?? p.largeUrl,
-            guestName: res.photo.guestName ?? p.guestName,
-          };
-        })
-      );
+      if (isVideo) {
+        const res = await api.moderateVideo(eventId, itemId, data);
+        setVideos((prev) =>
+          prev.map((v) => (v.id !== itemId ? v : { ...v, status: res.video.status ?? v.status, hidden: res.video.hidden ?? v.hidden }))
+        );
+      } else {
+        const res = await api.moderatePhoto(eventId, itemId, data);
+        setPhotos((prev) =>
+          prev.map((p) => {
+            if (p.id !== itemId) return p;
+            return {
+              ...p,
+              status: res.photo.status ?? p.status,
+              hidden: res.photo.hidden ?? p.hidden,
+              capturedAt: res.photo.capturedAt ?? p.capturedAt,
+              thumbUrl: res.photo.thumbUrl ?? p.thumbUrl,
+              largeUrl: res.photo.largeUrl ?? p.largeUrl,
+              guestName: res.photo.guestName ?? p.guestName,
+            };
+          })
+        );
+      }
     } catch (err: any) {
       console.error(err);
       setActionError(err.message || 'Action failed. Please try again.');
@@ -241,6 +262,7 @@ export default function Moderation() {
 
   const selectedCount = selected.size;
   const allSelected = photos.length > 0 && selectedCount === photos.length;
+  const totalItems = photos.length + videos.length;
 
   // ── Lightbox navigation ──────────────────────────────────────────────────
   const openLightbox = (photo: any) => {
@@ -257,7 +279,7 @@ export default function Moderation() {
   };
 
   return (
-    <Layout title="Moderation" subtitle="PHOTO REVIEW" showBack backTo={`/host/events/${eventId}`}>
+    <Layout title="Moderation" subtitle={`${totalItems} ITEM${totalItems !== 1 ? 'S' : ''}`} showBack backTo={`/host/events/${eventId}`}>
       {/* ── Error banner ──────────────────────────────────────────── */}
       {actionError && (
         <div className="mb-4 flex items-center gap-2 bg-error/10 border border-error/20 text-error px-4 py-3 rounded-xl text-sm">
@@ -367,238 +389,236 @@ export default function Moderation() {
       </div>
 
       {/* ── Content ───────────────────────────────────────────────── */}
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-4">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          <p className="text-on-surface-variant text-sm">Loading photos…</p>
-        </div>
-      ) : photos.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-3">
-          <div className="w-16 h-16 rounded-2xl bg-surface-container-highest flex items-center justify-center">
-            <Eye className="w-8 h-8 text-on-surface-variant/40" />
+      {(() => {
+        const allItems = [
+          ...photos.map((p) => ({ ...p, _type: 'photo' as const })),
+          ...videos.map((v) => ({ ...v, _type: 'video' as const })),
+        ].sort((a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime());
+
+        if (loading) return (
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-on-surface-variant text-sm">Loading…</p>
           </div>
-          <p className="text-on-surface font-headline font-bold text-lg">No photos to review</p>
-          <p className="text-on-surface-variant text-sm">
-            {filter === 'all'
-              ? 'Photos will appear here once guests start uploading.'
-              : `No photos match the "${filterOptions.find((f) => f.value === filter)?.label}" filter.`}
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-          {photos.map((photo) => {
-            const isActing = actionInProgress?.startsWith(photo.id + ':');
-            const isSelected = selected.has(photo.id);
+        );
 
-            return (
-              <div
-                key={photo.id}
-                className={`bg-surface-container-low rounded-xl overflow-hidden transition-all duration-200 hover:ring-1 hover:ring-primary/30 cursor-pointer ${
-                  isActing ? 'opacity-60 pointer-events-none' : ''
-                } ${isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
-                onClick={selectMode ? () => toggleSelect(photo.id) : undefined}
-              >
-                {/* ── Image area ────────────────────────────────── */}
-                <div className="aspect-square bg-surface-container-highest relative overflow-hidden group">
-                  <img
-                    src={photo.thumbUrl}
-                    alt=""
-                    className={`w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 ${
-                      photo.hidden ? 'grayscale opacity-50' : ''
-                    }`}
-                    loading="lazy"
-                    onClick={(e) => {
-                      if (!selectMode) {
-                        e.stopPropagation();
-                        openLightbox(photo);
-                      }
-                    }}
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
+        if (allItems.length === 0) return (
+          <div className="flex flex-col items-center justify-center py-24 gap-3">
+            <div className="w-16 h-16 rounded-2xl bg-surface-container-highest flex items-center justify-center">
+              <Eye className="w-8 h-8 text-on-surface-variant/40" />
+            </div>
+            <p className="text-on-surface font-headline font-bold text-lg">Nothing to review</p>
+            <p className="text-on-surface-variant text-sm">
+              {filter === 'all'
+                ? 'Media will appear here once guests start uploading.'
+                : `No media matches the "${filterOptions.find((f) => f.value === filter)?.label}" filter.`}
+            </p>
+          </div>
+        );
 
-                  {/* Hidden overlay */}
-                  {photo.hidden && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <EyeOff className="w-8 h-8 text-white/60" />
-                    </div>
-                  )}
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+            {allItems.map((item) => {
+              const isVideo = item._type === 'video';
+              const isActing = actionInProgress?.startsWith(item.id + ':');
+              const isSelected = selected.has(item.id);
+              const roundedScore = item.qualityScore != null ? Math.round(item.qualityScore) : null;
 
-                  {/* Top-left: select checkbox OR status badge */}
-                  <div className="absolute top-3 left-3 z-10">
-                    {selectMode ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleSelect(photo.id);
+              return (
+                <div
+                  key={item.id}
+                  className={`bg-surface-container-low rounded-xl overflow-hidden transition-all duration-200 hover:ring-1 hover:ring-primary/30 cursor-pointer ${
+                    isActing ? 'opacity-60 pointer-events-none' : ''
+                  } ${isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
+                  onClick={selectMode && !isVideo ? () => toggleSelect(item.id) : undefined}
+                >
+                  {/* ── Media area ──────────────────────────────── */}
+                  <div className="aspect-square bg-surface-container-highest relative overflow-hidden group">
+                    {isVideo ? (
+                      <video
+                        src={item.url}
+                        className={`w-full h-full object-cover ${item.hidden ? 'grayscale opacity-50' : ''}`}
+                        muted
+                        playsInline
+                        preload="metadata"
+                        onMouseEnter={(e) => (e.currentTarget as HTMLVideoElement).play()}
+                        onMouseLeave={(e) => {
+                          const v = e.currentTarget as HTMLVideoElement;
+                          v.pause();
+                          v.currentTime = 0;
                         }}
-                        className="w-7 h-7 flex items-center justify-center"
-                      >
-                        {isSelected ? (
-                          <CheckSquare className="w-6 h-6 text-primary drop-shadow-lg" />
-                        ) : (
-                          <Square className="w-6 h-6 text-white drop-shadow-lg" />
-                        )}
-                      </button>
+                      />
                     ) : (
-                      <StatusBadge status={photo.status} hidden={photo.hidden} />
+                      <img
+                        src={item.thumbUrl}
+                        alt=""
+                        className={`w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 ${
+                          item.hidden ? 'grayscale opacity-50' : ''
+                        }`}
+                        loading="lazy"
+                        onClick={(e) => {
+                          if (!selectMode) { e.stopPropagation(); openLightbox(item); }
+                        }}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
                     )}
-                  </div>
 
-                  {/* Top-right: quality score pill */}
-                  {!selectMode &&
-                    photo.qualityScore !== null &&
-                    photo.qualityScore !== undefined && (
-                      <div className="absolute top-3 right-3 z-10">
-                        <span
-                          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold backdrop-blur-sm ${qualityBadgeClass(
-                            photo.qualityScore
-                          )}`}
+                    {/* Hidden overlay */}
+                    {item.hidden && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <EyeOff className="w-8 h-8 text-white/60" />
+                      </div>
+                    )}
+
+                    {/* Video badge */}
+                    {isVideo && !selectMode && (
+                      <div className="absolute top-3 right-3 z-10 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-black/60 backdrop-blur-sm text-white">
+                        <Play className="w-2.5 h-2.5 fill-white" />
+                        {item.durationSec}s
+                      </div>
+                    )}
+
+                    {/* Top-left: select checkbox OR status badge */}
+                    <div className="absolute top-3 left-3 z-10">
+                      {selectMode && !isVideo ? (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
+                          className="w-7 h-7 flex items-center justify-center"
                         >
-                          {photo.qualityScore >= 70 ? null : photo.qualityScore < 40 ? (
-                            <AlertOctagon className="w-2.5 h-2.5" />
-                          ) : null}
-                          {photo.qualityScore}
+                          {isSelected ? (
+                            <CheckSquare className="w-6 h-6 text-primary drop-shadow-lg" />
+                          ) : (
+                            <Square className="w-6 h-6 text-white drop-shadow-lg" />
+                          )}
+                        </button>
+                      ) : (
+                        <StatusBadge status={item.status} hidden={item.hidden} />
+                      )}
+                    </div>
+
+                    {/* Top-right: quality score pill (photos only) */}
+                    {!selectMode && !isVideo && roundedScore !== null && (
+                      <div className="absolute top-3 right-3 z-10">
+                        <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold backdrop-blur-sm ${qualityBadgeClass(roundedScore)}`}>
+                          {roundedScore < 40 && <AlertOctagon className="w-2.5 h-2.5" />}
+                          {roundedScore}
                         </span>
                       </div>
                     )}
 
-                  {/* Bottom: quality issue tags */}
-                  {!selectMode && photo.qualityIssues && (
-                    <div className="absolute bottom-2 left-2 right-2 z-10 flex flex-wrap gap-1">
-                      {photo.qualityIssues
-                        .split(', ')
-                        .slice(0, 3)
-                        .map((issue: string) => (
-                          <span
-                            key={issue}
-                            className="px-2 py-0.5 bg-black/40 backdrop-blur-sm rounded text-[9px] text-white border border-white/10 uppercase tracking-tighter"
+                    {/* Bottom: quality issue tags (photos only) */}
+                    {!selectMode && !isVideo && item.qualityIssues && (
+                      <div className="absolute bottom-2 left-2 right-2 z-10 flex flex-wrap gap-1">
+                        {(() => {
+                          try {
+                            const flags = JSON.parse(item.qualityIssues);
+                            return Object.entries(flags).filter(([, v]) => v).slice(0, 3).map(([k]) => (
+                              <span key={k} className="px-2 py-0.5 bg-black/40 backdrop-blur-sm rounded text-[9px] text-white border border-white/10 uppercase tracking-tighter">{k}</span>
+                            ));
+                          } catch {
+                            return item.qualityIssues.split(', ').slice(0, 3).map((issue: string) => (
+                              <span key={issue} className="px-2 py-0.5 bg-black/40 backdrop-blur-sm rounded text-[9px] text-white border border-white/10 uppercase tracking-tighter">{issue}</span>
+                            ));
+                          }
+                        })()}
+                      </div>
+                    )}
+
+                    {/* Acting spinner */}
+                    {isActing && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                        <Loader2 className="w-8 h-8 animate-spin text-white" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Card body ───────────────────────────────── */}
+                  {!selectMode && (
+                    <div className="p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <p className="font-headline font-bold text-on-surface text-sm leading-tight">
+                            {item.guestName || 'Anonymous'}
+                          </p>
+                          <p className="text-on-surface-variant text-xs mt-0.5">
+                            {new Date(item.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                        {!isVideo && (
+                          <button
+                            onClick={() => openLightbox(item)}
+                            className="w-8 h-8 flex items-center justify-center rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-bright transition-colors"
                           >
-                            {issue}
-                          </span>
-                        ))}
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex gap-2">
+                        {item.status === 'PENDING' && (
+                          <>
+                            <button
+                              onClick={() => handleAction(item.id, 'approve', isVideo)}
+                              disabled={!!isActing}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-primary to-primary-dim text-white disabled:opacity-50 transition-all hover:opacity-90"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" /> Approve
+                            </button>
+                            <button
+                              onClick={() => handleAction(item.id, 'reject', isVideo)}
+                              disabled={!!isActing}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-error/15 text-error hover:bg-error/25 disabled:opacity-50 transition-colors"
+                            >
+                              <XCircle className="w-3.5 h-3.5" /> Reject
+                            </button>
+                          </>
+                        )}
+                        {item.status === 'APPROVED' && (
+                          <button
+                            onClick={() => handleAction(item.id, item.hidden ? 'unhide' : 'hide', isVideo)}
+                            disabled={!!isActing}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-surface-bright text-on-surface-variant hover:text-on-surface disabled:opacity-50 transition-colors"
+                          >
+                            {item.hidden ? <><Eye className="w-3.5 h-3.5" /> Show</> : <><EyeOff className="w-3.5 h-3.5" /> Hide</>}
+                          </button>
+                        )}
+                        {item.status === 'REJECTED' && (
+                          <button
+                            onClick={() => handleAction(item.id, 'approve', isVideo)}
+                            disabled={!!isActing}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" /> Restore
+                          </button>
+                        )}
+                        {item.status !== 'PENDING' && item.status !== 'APPROVED' && (
+                          <button
+                            onClick={() => handleAction(item.id, item.hidden ? 'unhide' : 'hide', isVideo)}
+                            disabled={!!isActing}
+                            className="w-9 flex items-center justify-center rounded-lg text-xs bg-surface-bright text-on-surface-variant hover:text-on-surface disabled:opacity-50 transition-colors"
+                          >
+                            {item.hidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 
-                  {/* Acting spinner */}
-                  {isActing && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                      <Loader2 className="w-8 h-8 animate-spin text-white" />
+                  {/* Compact row in select mode (photos only) */}
+                  {selectMode && !isVideo && (
+                    <div className="px-4 py-2.5 flex items-center justify-between">
+                      <span className="text-xs font-medium text-on-surface truncate">{item.guestName || 'Anonymous'}</span>
+                      <span className="text-xs text-on-surface-variant">
+                        {new Date(item.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
                     </div>
                   )}
                 </div>
-
-                {/* ── Card body ─────────────────────────────────── */}
-                {!selectMode && (
-                  <div className="p-5">
-                    {/* Name row */}
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <p className="font-headline font-bold text-on-surface text-sm leading-tight">
-                          {photo.guestName || 'Anonymous'}
-                        </p>
-                        <p className="text-on-surface-variant text-xs mt-0.5">
-                          {new Date(photo.capturedAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => openLightbox(photo)}
-                        className="w-8 h-8 flex items-center justify-center rounded-xl text-on-surface-variant hover:text-on-surface hover:bg-surface-bright transition-colors"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex gap-2">
-                      {photo.status === 'PENDING' && (
-                        <>
-                          <button
-                            onClick={() => handleAction(photo.id, 'approve')}
-                            disabled={!!isActing}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-primary to-primary-dim text-white disabled:opacity-50 transition-all hover:opacity-90"
-                          >
-                            <CheckCircle className="w-3.5 h-3.5" /> Approve
-                          </button>
-                          <button
-                            onClick={() => handleAction(photo.id, 'reject')}
-                            disabled={!!isActing}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-error/15 text-error hover:bg-error/25 disabled:opacity-50 transition-colors"
-                          >
-                            <XCircle className="w-3.5 h-3.5" /> Reject
-                          </button>
-                        </>
-                      )}
-
-                      {photo.status === 'APPROVED' && (
-                        <button
-                          onClick={() =>
-                            handleAction(photo.id, photo.hidden ? 'unhide' : 'hide')
-                          }
-                          disabled={!!isActing}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-surface-bright text-on-surface-variant hover:text-on-surface disabled:opacity-50 transition-colors"
-                        >
-                          {photo.hidden ? (
-                            <><Eye className="w-3.5 h-3.5" /> Show</>
-                          ) : (
-                            <><EyeOff className="w-3.5 h-3.5" /> Hide</>
-                          )}
-                        </button>
-                      )}
-
-                      {photo.status === 'REJECTED' && (
-                        <button
-                          onClick={() => handleAction(photo.id, 'approve')}
-                          disabled={!!isActing}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5" /> Restore
-                        </button>
-                      )}
-
-                      {/* Hide/show toggle for non-pending */}
-                      {photo.status !== 'PENDING' && photo.status !== 'APPROVED' && (
-                        <button
-                          onClick={() =>
-                            handleAction(photo.id, photo.hidden ? 'unhide' : 'hide')
-                          }
-                          disabled={!!isActing}
-                          className="w-9 flex items-center justify-center rounded-lg text-xs bg-surface-bright text-on-surface-variant hover:text-on-surface disabled:opacity-50 transition-colors"
-                        >
-                          {photo.hidden ? (
-                            <Eye className="w-3.5 h-3.5" />
-                          ) : (
-                            <EyeOff className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Compact row in select mode */}
-                {selectMode && (
-                  <div className="px-4 py-2.5 flex items-center justify-between">
-                    <span className="text-xs font-medium text-on-surface truncate">
-                      {photo.guestName || 'Anonymous'}
-                    </span>
-                    <span className="text-xs text-on-surface-variant">
-                      {new Date(photo.capturedAt).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* ── Floating Live Feed button ─────────────────────────────── */}
       <button

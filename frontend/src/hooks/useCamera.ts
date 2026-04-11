@@ -15,7 +15,7 @@ interface UseCameraReturn {
   startCamera: () => Promise<void>;
   stopCamera: () => void;
   switchCamera: () => void;
-  capturePhoto: () => Blob | null;
+  capturePhoto: (cssZoom?: number) => Blob | null;
   stream: MediaStream | null;
   torchSupported: boolean;
   torchOn: boolean;
@@ -225,7 +225,7 @@ export function useCamera(): UseCameraReturn {
     return false;
   }, []);
 
-  const capturePhoto = useCallback((): Blob | null => {
+  const capturePhoto = useCallback((cssZoom = 1): Blob | null => {
     if (!videoRef.current || !canvasRef.current) return null;
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -237,7 +237,16 @@ export function useCamera(): UseCameraReturn {
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
     }
-    ctx.drawImage(video, 0, 0);
+    if (cssZoom > 1) {
+      // Crop the center of the frame to match the CSS zoom level
+      const srcW = video.videoWidth / cssZoom;
+      const srcH = video.videoHeight / cssZoom;
+      const srcX = (video.videoWidth - srcW) / 2;
+      const srcY = (video.videoHeight - srcH) / 2;
+      ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.drawImage(video, 0, 0);
+    }
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
     const byteString = atob(dataUrl.split(',')[1]);
     const ab = new ArrayBuffer(byteString.length);

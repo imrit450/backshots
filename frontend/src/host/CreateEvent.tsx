@@ -97,6 +97,7 @@ export default function CreateEvent() {
   const [formInitialized, setFormInitialized] = useState(false);
   const [form, setForm] = useState({
     title: '',
+    location: '',
     startDatetime: getDefaultStartDatetimeLocal(),
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     revealDelayHours: 0,
@@ -233,6 +234,21 @@ export default function CreateEvent() {
                 className={inputClass}
                 placeholder="Sarah & Mike's Wedding"
                 required
+              />
+            </div>
+
+            {/* Location */}
+            <div className="mb-6">
+              <label className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wider mb-1">
+                Location <span className="normal-case font-normal opacity-50">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={form.location}
+                onChange={(e) => setForm({ ...form, location: e.target.value })}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+                className={inputClass}
+                placeholder="The Grand Ballroom, New York"
               />
             </div>
 

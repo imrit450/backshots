@@ -36,6 +36,7 @@ export default function EventSettings() {
 
   const [form, setForm] = useState({
     title: '',
+    location: '',
     startDatetime: '',
     timezone: 'UTC',
     revealDelayHours: 0,
@@ -59,6 +60,7 @@ export default function EventSettings() {
           : '';
         setForm({
           title: data.event.title,
+          location: data.event.location || '',
           startDatetime: startDt,
           timezone: data.event.timezone || 'UTC',
           revealDelayHours: data.event.revealDelayHours,
@@ -259,6 +261,20 @@ export default function EventSettings() {
                 className={inputCls}
                 placeholder="My Awesome Event"
                 required
+              />
+            </div>
+
+            {/* Location */}
+            <div>
+              <label className={labelCls}>
+                Location <span className="normal-case font-normal opacity-50">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={form.location}
+                onChange={(e) => setForm({ ...form, location: e.target.value })}
+                className={inputCls}
+                placeholder="The Grand Ballroom, New York"
               />
             </div>
 

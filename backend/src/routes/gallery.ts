@@ -44,15 +44,18 @@ router.get('/:eventCode/gallery', authenticateGuest, asyncHandler(async (req: Re
     where.guestSessionId = { in: sessions.map((s) => s.id) };
   }
 
-  const photos = await prisma.photo.findMany({
-    where,
-    orderBy: { capturedAt: sort === 'oldest' ? 'asc' : 'desc' },
-    include: {
-      guestSession: {
-        select: { displayName: true },
-      },
-    },
-  });
+  const [photos, videos] = await Promise.all([
+    prisma.photo.findMany({
+      where,
+      orderBy: { capturedAt: sort === 'oldest' ? 'asc' : 'desc' },
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+    prisma.video.findMany({
+      where: { eventId: event.id, hidden: false, status: 'APPROVED' },
+      orderBy: { capturedAt: sort === 'oldest' ? 'asc' : 'desc' },
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+  ]);
 
   // Apply visibility filter (reveal delay, hidden, approval status)
   const visiblePhotos = photos.filter((p) =>
@@ -74,6 +77,13 @@ router.get('/:eventCode/gallery', authenticateGuest, asyncHandler(async (req: Re
       title: p.title,
       capturedAt: p.capturedAt.toISOString(),
       guestName: p.guestSession.displayName,
+    })),
+    videos: videos.map((v) => ({
+      id: v.id,
+      url: v.url,
+      durationSec: v.durationSec,
+      capturedAt: v.capturedAt.toISOString(),
+      guestName: v.guestSession.displayName,
     })),
     pagination: {
       page: pageNum,

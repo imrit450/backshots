@@ -65,6 +65,48 @@ router.patch(
   })
 );
 
+// PATCH /v1/events/:eventId/videos/:videoId - Host moderate video
+router.patch(
+  '/:eventId/videos/:videoId',
+  authenticateHost,
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = moderatePhotoSchema.parse(req.body); // same shape: hidden / status
+
+    const evWhere = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+    const event = await prisma.event.findFirst({ where: evWhere });
+
+    if (!event) throw new AppError('Event not found', 404);
+
+    const video = await prisma.video.findFirst({
+      where: { id: req.params.videoId, eventId: event.id },
+    });
+
+    if (!video) throw new AppError('Video not found', 404);
+
+    const updateData: any = {};
+    if (body.hidden !== undefined) updateData.hidden = body.hidden;
+    if (body.status !== undefined) updateData.status = body.status;
+
+    const updated = await prisma.video.update({
+      where: { id: video.id },
+      data: updateData,
+      include: { guestSession: { select: { displayName: true } } },
+    });
+
+    res.json({
+      video: {
+        id: updated.id,
+        status: updated.status,
+        hidden: updated.hidden,
+        capturedAt: updated.capturedAt.toISOString(),
+        url: updated.url,
+        durationSec: updated.durationSec,
+        guestName: updated.guestSession.displayName,
+      },
+    });
+  })
+);
+
 // ── Bulk operations ────────────────────────────────────────────────────
 
 const bulkModerateSchema = z.object({

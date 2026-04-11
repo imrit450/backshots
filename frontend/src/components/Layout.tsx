@@ -11,6 +11,7 @@ import {
   Shield,
   Crown,
   Menu,
+  BookImage,
 } from 'lucide-react';
 import { getPlan } from '../config/plans';
 import { LogoIcon, LogoWordmark } from './Logo';
@@ -111,9 +112,13 @@ export default function Layout({ children, title, subtitle, showBack, backTo }: 
     },
     {
       label: 'Events',
-      to: '/host',
+      to: '/host/events',
       icon: <CalendarDays className="w-5 h-5" />,
-      matchExact: true,
+    },
+    {
+      label: 'My Memories',
+      to: '/host/memories',
+      icon: <BookImage className="w-5 h-5" />,
     },
     {
       label: 'Pricing',

@@ -1,11 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import jwt from 'jsonwebtoken';
 import { asyncHandler } from '../utils/asyncHandler';
 import { prisma } from '../index';
 import { generateGuestToken } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
 import { v4 as uuidv4 } from 'uuid';
 import { getPlan } from '../config/plans';
+import { config } from '../config';
 
 const router = Router();
 
@@ -85,6 +87,19 @@ router.get('/:eventCode/guest-sessions/check', asyncHandler(async (req: Request,
   res.json({ existingSession: null });
 }));
 
+// Helper: extract hostId from the Authorization header if it carries a host JWT
+function extractHostId(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  try {
+    const payload = jwt.verify(authHeader.substring(7), config.jwtSecret) as any;
+    if (payload.type === 'host' && payload.hostId) return payload.hostId as string;
+  } catch {
+    // not a valid host token — fine
+  }
+  return null;
+}
+
 // POST /v1/events/:eventCode/guest-sessions - Guest starts session
 router.post('/:eventCode/guest-sessions', asyncHandler(async (req: Request, res: Response) => {
   const body = createSessionSchema.parse(req.body);
@@ -96,6 +111,8 @@ router.post('/:eventCode/guest-sessions', asyncHandler(async (req: Request, res:
   if (!event || !event.isActive) {
     throw new AppError('Event not found or inactive', 404);
   }
+
+  const hostId = extractHostId(req);
 
   // If deviceId is provided, check for an existing session from this device
   if (body.deviceId) {
@@ -109,10 +126,16 @@ router.post('/:eventCode/guest-sessions', asyncHandler(async (req: Request, res:
     });
 
     if (existing) {
-      // Return the existing session with a fresh JWT — don't create a duplicate
-      const jwt = generateGuestToken(existing.id, event.id);
+      // If this session isn't yet linked to a host account but we now know who it is, link it
+      if (hostId && !existing.hostId) {
+        await prisma.guestSession.update({
+          where: { id: existing.id },
+          data: { hostId },
+        });
+      }
+      const guestToken = generateGuestToken(existing.id, event.id);
       return res.status(200).json({
-        token: jwt,
+        token: guestToken,
         returning: true,
         ...buildSessionResponse(existing, event),
       });
@@ -120,11 +143,11 @@ router.post('/:eventCode/guest-sessions', asyncHandler(async (req: Request, res:
   }
 
   // Enforce plan guest limit
-  const host = await prisma.host.findUnique({
+  const eventHost = await prisma.host.findUnique({
     where: { id: event.hostId },
     select: { plan: true },
   });
-  const plan = getPlan(host?.plan || 'free');
+  const plan = getPlan(eventHost?.plan || 'free');
   if (plan.maxGuestsPerEvent !== -1) {
     const guestCount = await prisma.guestSession.count({ where: { eventId: event.id } });
     if (guestCount >= plan.maxGuestsPerEvent) {
@@ -140,6 +163,7 @@ router.post('/:eventCode/guest-sessions', asyncHandler(async (req: Request, res:
   const session = await prisma.guestSession.create({
     data: {
       eventId: event.id,
+      hostId: hostId || null,
       deviceId: body.deviceId || null,
       displayName: body.displayName,
       phoneNumber: body.phoneNumber || null,
@@ -147,10 +171,10 @@ router.post('/:eventCode/guest-sessions', asyncHandler(async (req: Request, res:
     },
   });
 
-  const jwt = generateGuestToken(session.id, event.id);
+  const guestToken = generateGuestToken(session.id, event.id);
 
   res.status(201).json({
-    token: jwt,
+    token: guestToken,
     returning: false,
     ...buildSessionResponse(session, event),
   });

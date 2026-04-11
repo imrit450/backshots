@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import PhotoGrid from '../components/PhotoGrid';
-import { Camera, ChevronLeft } from 'lucide-react';
+import { Camera, ChevronLeft, Play } from 'lucide-react';
 import { LogoIcon } from '../components/Logo';
+
+type MediaItem =
+  | ({ _type: 'photo' } & Record<string, any>)
+  | ({ _type: 'video' } & Record<string, any>);
 
 export default function GuestGallery() {
   const { eventCode } = useParams<{ eventCode: string }>();
   const navigate = useNavigate();
-  const [photos, setPhotos] = useState<any[]>([]);
+  const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<'latest' | 'oldest'>('latest');
   const event = JSON.parse(sessionStorage.getItem('guestEvent') || '{}');
@@ -18,7 +21,14 @@ export default function GuestGallery() {
     setLoading(true);
     api
       .getGuestGallery(eventCode, { sort })
-      .then((data) => setPhotos(data.photos))
+      .then((data) => {
+        const photos: MediaItem[] = (data.photos || []).map((p: any) => ({ _type: 'photo' as const, ...p }));
+        const videos: MediaItem[] = ((data as any).videos || []).map((v: any) => ({ _type: 'video' as const, ...v }));
+        const merged = [...photos, ...videos].sort(
+          (a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime()
+        );
+        setItems(merged);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [eventCode, sort]);
@@ -50,7 +60,7 @@ export default function GuestGallery() {
                 {event.title || 'Gallery'}
               </h1>
               <p className="text-on-surface-variant text-xs leading-tight">
-                {loading ? 'Loading...' : `${photos.length} photo${photos.length !== 1 ? 's' : ''}`}
+                {loading ? 'Loading...' : `${items.length} item${items.length !== 1 ? 's' : ''}`}
               </p>
             </div>
           </div>
@@ -92,14 +102,45 @@ export default function GuestGallery() {
         </div>
       </header>
 
-      {/* Photo grid — offset for fixed header */}
+      {/* Media grid — offset for fixed header */}
       <div className="pt-20 px-4 pb-24">
         {loading ? (
           <div className="flex justify-center py-20">
             <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
           </div>
+        ) : items.length === 0 ? (
+          <div className="flex justify-center py-20">
+            <p className="text-on-surface-variant text-sm">Nothing here yet.</p>
+          </div>
         ) : (
-          <PhotoGrid photos={photos} />
+          <div className="grid grid-cols-3 gap-1">
+            {items.map((item) => (
+              <div key={item.id} className="relative aspect-square rounded-sm overflow-hidden bg-surface-container-highest">
+                {item._type === 'video' ? (
+                  <>
+                    <video
+                      src={item.url}
+                      className="absolute inset-0 w-full h-full object-cover"
+                      muted
+                      playsInline
+                      preload="metadata"
+                    />
+                    <div className="absolute bottom-1 left-1 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-black/60 text-white text-[10px] font-bold">
+                      <Play className="w-2.5 h-2.5 fill-white" />
+                      {item.durationSec}s
+                    </div>
+                  </>
+                ) : (
+                  <img
+                    src={item.thumbUrl}
+                    alt={item.guestName || ''}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    loading="lazy"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

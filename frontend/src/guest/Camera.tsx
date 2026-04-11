@@ -76,6 +76,8 @@ export default function GuestCamera() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [longPressActive, setLongPressActive] = useState(false);
 
   // Mode
   const [mode, setMode] = useState<CameraMode>('photo');
@@ -103,6 +105,8 @@ export default function GuestCamera() {
   // Zoom
   const [cssZoom, setCssZoom] = useState(1);
   const pinchRef = useRef<{ startDist: number; startZoom: number } | null>(null);
+  // Tracks the actual zoom level across gestures regardless of mechanism
+  const zoomLevelRef = useRef(1);
 
   // Title & description
   const [photoTitle, setPhotoTitle] = useState('');
@@ -159,9 +163,9 @@ export default function GuestCamera() {
         e.touches[1].clientX - e.touches[0].clientX,
         e.touches[1].clientY - e.touches[0].clientY,
       );
-      pinchRef.current = { startDist: dist, startZoom: cssZoom };
+      pinchRef.current = { startDist: dist, startZoom: zoomLevelRef.current };
     }
-  }, [cssZoom]);
+  }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 2 && pinchRef.current) {
@@ -171,8 +175,14 @@ export default function GuestCamera() {
       );
       const scale = dist / pinchRef.current.startDist;
       const newZoom = Math.max(1, Math.min(5, pinchRef.current.startZoom * scale));
-      setCssZoom(newZoom);
-      camera.applyZoom(newZoom);
+      zoomLevelRef.current = newZoom;
+      if (camera.zoomCaps) {
+        // Native zoom: the video stream itself is zoomed — no CSS scale needed
+        camera.applyZoom(newZoom);
+      } else {
+        // CSS fallback: scale the video element visually; capture will crop accordingly
+        setCssZoom(newZoom);
+      }
     }
   }, [camera]);
 
@@ -269,6 +279,9 @@ export default function GuestCamera() {
     }
 
     // ── Photo mode ──
+    // Always clear any stuck screen-flash state from a previous capture before starting
+    setScreenFlash(false);
+
     if (flashEnabled) {
       if (camera.torchSupported) {
         await camera.setTorch(true);
@@ -281,14 +294,14 @@ export default function GuestCamera() {
       }
     }
 
-    const blob = camera.capturePhoto();
+    // cssZoom is 1 when native zoom is used (stream is already zoomed),
+    // or the actual scale factor when CSS zoom is the fallback (crop needed).
+    const blob = camera.capturePhoto(cssZoom);
 
-    if (flashEnabled) {
-      if (camera.torchSupported) {
-        setTimeout(() => camera.setTorch(false), 100);
-      } else {
-        setTimeout(() => setScreenFlash(false), 200);
-      }
+    // Always reset screen flash regardless of which flash path ran
+    setTimeout(() => setScreenFlash(false), 200);
+    if (flashEnabled && camera.torchSupported) {
+      setTimeout(() => camera.setTorch(false), 100);
     }
 
     if (blob) {
@@ -347,6 +360,8 @@ export default function GuestCamera() {
     setError('');
     setPhotoTitle('');
     setPhotoDescription('');
+    setCssZoom(1);
+    zoomLevelRef.current = 1;
     setScreen('camera');
     camera.startCamera();
   }, [capturedUrl, videoPreviewUrl, camera]);
@@ -667,7 +682,7 @@ export default function GuestCamera() {
           <div className="flex justify-around items-center px-8 pb-12 pt-4">
             {/* Switch camera */}
             <button
-              onClick={camera.switchCamera}
+              onClick={() => { setCssZoom(1); zoomLevelRef.current = 1; camera.switchCamera(); }}
               disabled={recording}
               className="w-14 h-14 rounded-full bg-surface-container-highest/40 backdrop-blur-xl border border-outline-variant/20 flex items-center justify-center disabled:opacity-40"
             >
@@ -676,13 +691,37 @@ export default function GuestCamera() {
 
             {/* Capture / Stop button */}
             <div className="relative flex items-center justify-center">
-              <div className={`absolute -inset-4 rounded-full blur-2xl ${recording ? 'bg-red-500/30' : 'bg-primary/20'}`} />
+              <div className={`absolute -inset-4 rounded-full blur-2xl ${recording ? 'bg-red-500/30' : longPressActive ? 'bg-red-500/20' : 'bg-primary/20'}`} />
               <button
                 onClick={handleCapture}
                 disabled={(!camera.isReady || uploadsClosed) && !recording}
+                onPointerDown={() => {
+                  if (recording || mode === 'video') return;
+                  longPressTimerRef.current = setTimeout(() => {
+                    setMode('video');
+                    setLongPressActive(false);
+                  }, 500);
+                  setLongPressActive(true);
+                }}
+                onPointerUp={() => {
+                  if (longPressTimerRef.current) {
+                    clearTimeout(longPressTimerRef.current);
+                    longPressTimerRef.current = null;
+                  }
+                  setLongPressActive(false);
+                }}
+                onPointerLeave={() => {
+                  if (longPressTimerRef.current) {
+                    clearTimeout(longPressTimerRef.current);
+                    longPressTimerRef.current = null;
+                  }
+                  setLongPressActive(false);
+                }}
                 className={`relative w-24 h-24 rounded-full border-[6px] transition-transform duration-150 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed ${
                   recording
                     ? 'bg-red-600 border-white/20 shadow-[0_0_40px_rgba(239,68,68,0.5)] hover:scale-105 active:scale-95'
+                    : longPressActive
+                    ? 'kinetic-gradient border-red-400/60 shadow-[0_0_40px_rgba(239,68,68,0.4)] scale-110'
                     : 'kinetic-gradient border-white/20 shadow-[0_0_40px_rgba(193,156,255,0.4)] hover:scale-105 active:scale-95'
                 }`}
               >
@@ -854,7 +893,7 @@ export default function GuestCamera() {
                   onClick={() => setScreen('myPhotos')}
                   className="w-full py-4 bg-surface-container-highest text-on-surface font-headline font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all"
                 >
-                  <User className="w-5 h-5" /> My Photos ({myPhotos.length})
+                  <User className="w-5 h-5" /> My Gallery ({myPhotos.length})
                 </button>
               )}
               {event.guestGalleryEnabled && (
@@ -879,7 +918,7 @@ export default function GuestCamera() {
             <div className="flex items-center justify-between px-6 py-5 border-b border-outline-variant/20 flex-shrink-0">
               <h2 className="font-headline font-bold text-on-surface text-lg flex items-center gap-2">
                 <User className="w-5 h-5 text-primary" />
-                My Photos ({myPhotos.length})
+                My Gallery ({myPhotos.length})
               </h2>
               <button
                 onClick={() => setScreen('camera')}
