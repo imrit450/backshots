@@ -114,49 +114,49 @@ server_name lumora.zilware.mu;
 
 ---
 
-## 4. Get the SSL certificate (Let's Encrypt)
+## 4. Install nginx config on the host
 
-**Phase 1 — Start nginx on HTTP only** so Certbot can complete the ACME challenge.
-
-Make sure `nginx/default.conf` is the active config (it should be by default — it serves HTTP only). Then start only nginx and db:
+Since other sites already run on this server, Lumora uses the **host nginx** for SSL termination. Docker only exposes the backend and frontend on localhost ports.
 
 ```bash
-cd /opt/lumora
+# Copy the site config
+sudo cp /opt/lumora/nginx/lumora.zilware.mu.conf /etc/nginx/sites-available/lumora.zilware.mu
+sudo ln -s /etc/nginx/sites-available/lumora.zilware.mu /etc/nginx/sites-enabled/
 
-# Create the certbot directories Certbot will write into
-mkdir -p certbot/webroot certbot/conf
-
-# Start nginx (HTTP only mode)
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d nginx db
-```
-
-**Phase 2 — Issue the certificate:**
-
-```bash
-docker run --rm \
-  -v /opt/lumora/certbot/webroot:/var/www/certbot \
-  -v /opt/lumora/certbot/conf:/etc/letsencrypt \
-  certbot/certbot certonly \
-    --webroot \
-    --webroot-path /var/www/certbot \
-    --email admin@zilware.mu \
-    --agree-tos \
-    --no-eff-email \
-    -d lumora.zilware.mu
-```
-
-If successful you'll see: `Congratulations! Your certificate and chain have been saved.`
-
-**Phase 3 — Switch nginx to HTTPS mode:**
-
-```bash
-# Swap the config
-cp /opt/lumora/nginx/default-ssl.conf /opt/lumora/nginx/default.conf
+# Test and reload (HTTP only for now — SSL cert not yet issued)
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
 ---
 
-## 5. Launch the full stack
+## 5. Get the SSL certificate (Let's Encrypt)
+
+Certbot runs on the host (not in Docker) using the nginx plugin:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+
+sudo certbot certonly --webroot \
+  -w /var/www/certbot \
+  --email admin@zilware.mu \
+  --agree-tos \
+  --no-eff-email \
+  -d lumora.zilware.mu
+```
+
+> If `/var/www/certbot` doesn't exist: `sudo mkdir -p /var/www/certbot`
+
+Once the cert is issued, reload nginx to pick up HTTPS:
+
+```bash
+sudo systemctl reload nginx
+```
+
+Auto-renewal is handled by the certbot systemd timer that ships with the package (`systemctl status certbot.timer`).
+
+---
+
+## 6. Launch the app stack
 
 ```bash
 cd /opt/lumora
@@ -166,22 +166,14 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 This builds and starts:
 - `db` — PostgreSQL 16
 - `scorer` — Python BRISQUE image quality sidecar
-- `backend` — Node/Express API (runs `prisma db push` on startup)
-- `frontend` — React app served by nginx
-- `nginx` — Reverse proxy with SSL
-- `certbot` — Auto-renews the certificate every 12 hours
+- `backend` — Node/Express API on `127.0.0.1:3001`
+- `frontend` — React app on `127.0.0.1:8080`
 
-**Reload nginx to pick up the new upstream IPs:**
-
-```bash
-docker exec lumora-nginx-1 nginx -s reload
-```
-
-> The container name prefix may differ. Check with `docker ps` if the above fails.
+The host nginx proxies `lumora.zilware.mu` → those two ports.
 
 ---
 
-## 6. Verify everything is up
+## 7. Verify everything is up
 
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
