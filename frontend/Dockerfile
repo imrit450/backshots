@@ -14,8 +14,9 @@ RUN npm ci
 # Copy frontend source
 COPY frontend/ ./frontend/
 
-# Build — run tsc and vite directly so they resolve from the hoisted root
-RUN cd frontend && ../node_modules/.bin/tsc && ../node_modules/.bin/vite build
+# Build — npx resolves binaries from any node_modules up the tree,
+# so it works whether npm hoisted them to /app or left them in /app/frontend.
+RUN cd frontend && npx tsc && npx vite build
 
 # ── Stage 2: Serve with nginx ────────────────────
 FROM nginx:alpine AS runner
