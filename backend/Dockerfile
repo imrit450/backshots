@@ -15,10 +15,11 @@ RUN npm ci
 COPY backend/prisma ./backend/prisma/
 RUN npx prisma generate --schema=backend/prisma/schema.prisma
 
-# Build TypeScript — npx resolves tsc regardless of hoisting location
+# Build TypeScript via the workspace build script.
+# npm run --workspace resolves node_modules/.bin automatically.
 COPY backend/tsconfig.json ./backend/
 COPY backend/src ./backend/src/
-RUN cd backend && npx tsc
+RUN npm run build --workspace=backend
 
 # ── Stage 2: Production ──────────────────────────
 FROM node:20-alpine AS runner
