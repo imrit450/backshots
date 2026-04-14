@@ -7,8 +7,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/
 
-# Install only frontend workspace deps
-RUN npm ci --workspace=frontend --include-workspace-root
+# Install all workspace deps (including devDependencies needed for tsc + vite)
+RUN npm ci --include-workspace-root
 
 # Copy source and build
 COPY frontend/ ./frontend/
