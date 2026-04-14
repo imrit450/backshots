@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.env.local
 .env.production
 *.db
 *.db-journal
@@ -25,3 +26,10 @@ certbot/
 # SSH deploy key (never commit)
 deploy_key
 deploy_key.pub
+
+# AI assistant working directory
+.claude/
+
+# Local dev scratch / prototypes
+frontend/html-prototype/
+frontend/src_backup/

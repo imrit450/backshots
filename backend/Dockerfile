@@ -17,7 +17,7 @@ RUN npx prisma generate --schema=backend/prisma/schema.prisma
 # Build TypeScript
 COPY backend/tsconfig.json ./backend/
 COPY backend/src ./backend/src/
-RUN npm run build --workspace=backend
+RUN PATH=/app/node_modules/.bin:$PATH npm run build --workspace=backend
 
 # ── Stage 2: Production ──────────────────────────
 FROM node:20-alpine AS runner

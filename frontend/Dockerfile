@@ -11,8 +11,10 @@ COPY frontend/package.json ./frontend/
 RUN npm ci
 
 # Copy source and build
+# Prepend the root workspace bin dir to PATH so hoisted tools (tsc, vite)
+# are found when the build script runs inside the frontend sub-package.
 COPY frontend/ ./frontend/
-RUN npm run build --workspace=frontend
+RUN PATH=/app/node_modules/.bin:$PATH npm run build --workspace=frontend
 
 # ── Stage 2: Serve with nginx ────────────────────
 FROM nginx:alpine AS runner
