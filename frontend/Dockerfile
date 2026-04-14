@@ -8,7 +8,7 @@ COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/
 
 # Install all workspace deps (including devDependencies needed for tsc + vite)
-RUN npm ci --include-workspace-root
+RUN npm ci
 
 # Copy source and build
 COPY frontend/ ./frontend/
