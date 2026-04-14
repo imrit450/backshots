@@ -11,12 +11,14 @@ COPY backend/package.json ./backend/
 # Install all deps (hoists devDeps like typescript & vite to /app/node_modules)
 RUN npm ci
 
+# Ensure hoisted binaries are on PATH for ALL run commands
+ENV PATH="/app/node_modules/.bin:/app/frontend/node_modules/.bin:${PATH}"
+
 # Copy frontend source
 COPY frontend/ ./frontend/
 
-# Build via the workspace's own build script (tsc && vite build).
-# npm run --workspace resolves node_modules/.bin automatically.
-RUN npm run build --workspace=frontend
+# Build — tsc and vite are now on PATH regardless of where npm hoisted them
+RUN cd frontend && tsc && vite build
 
 # ── Stage 2: Serve with nginx ────────────────────
 FROM nginx:alpine AS runner

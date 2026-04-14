@@ -11,15 +11,17 @@ COPY frontend/package.json ./frontend/
 # Install all workspace deps so devDeps are hoisted to /app/node_modules
 RUN npm ci
 
+# Ensure hoisted binaries are on PATH for ALL run commands
+ENV PATH="/app/node_modules/.bin:/app/backend/node_modules/.bin:${PATH}"
+
 # Generate Prisma client
 COPY backend/prisma ./backend/prisma/
-RUN npx prisma generate --schema=backend/prisma/schema.prisma
+RUN prisma generate --schema=backend/prisma/schema.prisma
 
-# Build TypeScript via the workspace build script.
-# npm run --workspace resolves node_modules/.bin automatically.
+# Build TypeScript — tsc is now on PATH regardless of where npm hoisted it
 COPY backend/tsconfig.json ./backend/
 COPY backend/src ./backend/src/
-RUN npm run build --workspace=backend
+RUN cd backend && tsc
 
 # ── Stage 2: Production ──────────────────────────
 FROM node:20-alpine AS runner
