@@ -1,11 +1,34 @@
-# Lumora — Ubuntu Server Deployment Guide
+# Lumora — Production Deployment Guide
 
 **Domain:** `lumora.zilware.mu`  
-**Stack:** Docker Compose (PostgreSQL, Node backend, React frontend, nginx, Certbot)
+**Stack:** Docker Compose (PostgreSQL, Node backend, React frontend) + host nginx + host Certbot  
+**Assumes:** Ubuntu server already running nginx with other sites
 
 ---
 
-## Prerequisites on the server
+## Architecture overview
+
+```
+Internet
+   │
+   ▼
+Host nginx (port 80/443)           ← shared with your other sites
+   ├── lumora.zilware.mu → 127.0.0.1:3001  (Lumora backend)
+   │                     → 127.0.0.1:8080  (Lumora frontend)
+   └── yourother.site   → ...
+
+Docker Compose (internal only)
+   ├── db       (PostgreSQL, internal)
+   ├── scorer   (image quality sidecar, internal)
+   ├── backend  → 127.0.0.1:3001
+   └── frontend → 127.0.0.1:8080
+```
+
+Nginx and SSL run on the host — Docker does not bind to port 80 or 443, so it does not conflict with your other sites.
+
+---
+
+## Prerequisites
 
 ```bash
 # Update packages
@@ -19,37 +42,36 @@ newgrp docker
 # Install Docker Compose plugin
 sudo apt install -y docker-compose-plugin
 
+# Install Certbot (if not already installed)
+sudo apt install -y certbot python3-certbot-nginx
+
 # Verify
 docker --version
 docker compose version
+nginx -v
+certbot --version
 ```
 
 ---
 
-## 1. Copy the project to the server
+## Step 1 — Clone the project
 
-From your local machine, rsync the project (excluding node_modules and local build artifacts):
-
-```bash
-rsync -avz --exclude='node_modules' \
-            --exclude='.git' \
-            --exclude='frontend/dist' \
-            --exclude='backend/dist' \
-            --exclude='scorer/__pycache__' \
-  /e/Admin/Documents/Development/Backshots/ \
-  your-user@lumora.zilware.mu:/opt/lumora/
-```
-
-Or clone from Git if you have it in a repo:
+Fix permissions on the target directory, then clone:
 
 ```bash
-git clone <your-repo-url> /opt/lumora
+sudo mkdir -p /opt/lumora
+sudo chown -R $USER:$USER /opt/lumora
+
+git clone https://<YOUR_GITHUB_TOKEN>@github.com/imrit450/backshots.git /opt/lumora
 cd /opt/lumora
 ```
 
+> Generate a GitHub personal access token at: GitHub → Settings → Developer settings → Personal access tokens  
+> Make sure the token has the **repo** scope.
+
 ---
 
-## 2. Create the production env file
+## Step 2 — Create the environment file
 
 ```bash
 cd /opt/lumora
@@ -77,86 +99,67 @@ BASE_URL=https://lumora.zilware.mu
 
 # Storage (filesystem is simplest to start)
 STORAGE_TYPE=filesystem
-
-# Port nginx listens on (keep 80 for SSL cert acquisition)
-APP_PORT=80
 ```
 
-> **Tip:** Generate a strong JWT secret:
-> ```bash
-> openssl rand -hex 64
-> ```
-
----
-
-## 3. Configure nginx for your domain
-
-### Step 3a — Point the nginx config to your domain
-
-Edit the SSL config file:
+Generate a strong JWT secret:
 
 ```bash
-nano /opt/lumora/nginx/default-ssl.conf
-```
-
-Replace both occurrences of `REPLACE_DOMAIN` with `lumora.zilware.mu`:
-
-```nginx
-ssl_certificate /etc/letsencrypt/live/lumora.zilware.mu/fullchain.pem;
-ssl_certificate_key /etc/letsencrypt/live/lumora.zilware.mu/privkey.pem;
-```
-
-Also update `server_name` in both server blocks:
-
-```nginx
-server_name lumora.zilware.mu;
+openssl rand -hex 64
 ```
 
 ---
 
-## 4. Install nginx config on the host
+## Step 3 — Add the nginx site config
 
-Since other sites already run on this server, Lumora uses the **host nginx** for SSL termination. Docker only exposes the backend and frontend on localhost ports.
+Copy the site config into nginx's sites-available and enable it:
 
 ```bash
-# Copy the site config
 sudo cp /opt/lumora/nginx/lumora.zilware.mu.conf /etc/nginx/sites-available/lumora.zilware.mu
 sudo ln -s /etc/nginx/sites-available/lumora.zilware.mu /etc/nginx/sites-enabled/
 
-# Test and reload (HTTP only for now — SSL cert not yet issued)
-sudo nginx -t && sudo systemctl reload nginx
+# Verify the config is valid (this checks all enabled sites, not just Lumora)
+sudo nginx -t
+
+# Reload nginx to activate the new site
+sudo systemctl reload nginx
 ```
+
+The config routes:
+- `/v1/` and `/uploads/` and `/exports/` → backend on `127.0.0.1:3001`
+- Everything else → frontend on `127.0.0.1:8080`
 
 ---
 
-## 5. Get the SSL certificate (Let's Encrypt)
+## Step 4 — Issue the SSL certificate
 
-Certbot runs on the host (not in Docker) using the nginx plugin:
+The `--nginx` plugin handles the ACME challenge and SSL config automatically — no webroot setup needed.
 
 ```bash
-sudo apt install -y certbot python3-certbot-nginx
-
-sudo certbot certonly --webroot \
-  -w /var/www/certbot \
+sudo certbot --nginx \
   --email admin@zilware.mu \
   --agree-tos \
   --no-eff-email \
   -d lumora.zilware.mu
 ```
 
-> If `/var/www/certbot` doesn't exist: `sudo mkdir -p /var/www/certbot`
+If successful you'll see: `Congratulations! Your certificate and chain have been saved.`
 
-Once the cert is issued, reload nginx to pick up HTTPS:
+Reload nginx to activate HTTPS:
 
 ```bash
-sudo systemctl reload nginx
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-Auto-renewal is handled by the certbot systemd timer that ships with the package (`systemctl status certbot.timer`).
+Auto-renewal is handled by the certbot systemd timer that ships with the package:
+
+```bash
+# Verify the timer is active
+systemctl status certbot.timer
+```
 
 ---
 
-## 6. Launch the app stack
+## Step 5 — Launch the app
 
 ```bash
 cd /opt/lumora
@@ -164,33 +167,34 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 ```
 
 This builds and starts:
-- `db` — PostgreSQL 16
-- `scorer` — Python BRISQUE image quality sidecar
-- `backend` — Node/Express API on `127.0.0.1:3001`
-- `frontend` — React app on `127.0.0.1:8080`
+- `db` — PostgreSQL 16 (internal only)
+- `scorer` — Python BRISQUE image quality sidecar (internal only)
+- `backend` — Node/Express API, exposed on `127.0.0.1:3001`
+- `frontend` — React app, exposed on `127.0.0.1:8080`
 
-The host nginx proxies `lumora.zilware.mu` → those two ports.
+Wait ~30 seconds for the backend to run `prisma db push` on first boot.
 
 ---
 
-## 7. Verify everything is up
+## Step 6 — Verify
 
 ```bash
+# Check all containers are running
 docker compose --env-file .env.production -f docker-compose.prod.yml ps
 
 # Check backend logs
 docker compose --env-file .env.production -f docker-compose.prod.yml logs backend --tail=50
 
-# Hit the health endpoint
+# Health check
 curl https://lumora.zilware.mu/health
 # Expected: {"status":"ok","timestamp":"..."}
 ```
 
-Open `https://lumora.zilware.mu` in your browser — you should see the Lumora landing page.
+Open `https://lumora.zilware.mu` in your browser.
 
 ---
 
-## 7. DNS record
+## Step 7 — DNS record
 
 In your DNS provider for `zilware.mu`, add an **A record**:
 
@@ -208,10 +212,9 @@ TTL 300 is fine. Allow up to 10 minutes to propagate.
 
 ```bash
 cd /opt/lumora
-git pull   # if using git
+git pull
 
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
-docker exec lumora-nginx-1 nginx -s reload
 ```
 
 ### View logs
@@ -249,7 +252,7 @@ docker exec lumora-db-1 pg_dump -U lumora lumora > backup_$(date +%Y%m%d).sql
 
 ```bash
 sudo ufw allow 22/tcp    # SSH
-sudo ufw allow 80/tcp    # HTTP (needed for cert renewal)
+sudo ufw allow 80/tcp    # HTTP (needed for cert renewal ACME challenge)
 sudo ufw allow 443/tcp   # HTTPS
 sudo ufw enable
 ```
@@ -260,8 +263,10 @@ sudo ufw enable
 
 | Symptom | Fix |
 |---------|-----|
-| `502 Bad Gateway` after deploy | `docker exec lumora-nginx-1 nginx -s reload` |
-| Backend won't start | Check `docker logs lumora-backend-1` — likely a missing env var |
-| Cert not found | Re-run the certbot command in step 4, check DNS is resolving |
+| `502 Bad Gateway` | Docker containers not running — `docker compose ... ps` and `... up -d` |
+| Backend won't start | `docker compose ... logs backend` — likely a missing env var in `.env.production` |
+| Cert not found / SSL error | Re-run certbot command in Step 4, check DNS is resolving first |
+| Port already in use on docker up | Another service owns 3001 or 8080 — change the host port in `docker-compose.prod.yml` and update the nginx config to match |
 | Uploads not persisting | Volumes are named Docker volumes — they survive `down` but not `down -v` |
-| Scorer returning 500 | `docker logs lumora-scorer-1` — should self-heal on restart |
+| Scorer returning 500 | `docker compose ... logs scorer` — should self-heal on restart |
+| nginx config test fails | `sudo nginx -t` will show which file has the error |
