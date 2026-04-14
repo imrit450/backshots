@@ -6,18 +6,19 @@ WORKDIR /app
 # Copy root workspace files + backend package
 COPY package.json package-lock.json ./
 COPY backend/package.json ./backend/
+COPY frontend/package.json ./frontend/
 
-# Install only backend workspace deps
-RUN npm ci --workspace=backend --include-workspace-root
+# Install all workspace deps so devDeps are hoisted to /app/node_modules
+RUN npm ci
 
 # Generate Prisma client
 COPY backend/prisma ./backend/prisma/
 RUN npx prisma generate --schema=backend/prisma/schema.prisma
 
-# Build TypeScript
+# Build TypeScript — call tsc directly from the hoisted root bin
 COPY backend/tsconfig.json ./backend/
 COPY backend/src ./backend/src/
-RUN PATH=/app/node_modules/.bin:$PATH npm run build --workspace=backend
+RUN cd backend && ../node_modules/.bin/tsc
 
 # ── Stage 2: Production ──────────────────────────
 FROM node:20-alpine AS runner

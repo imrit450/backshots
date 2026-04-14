@@ -3,18 +3,19 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy root workspace files + frontend package
+# Copy entire workspace so npm ci can resolve all workspaces correctly
 COPY package.json package-lock.json ./
 COPY frontend/package.json ./frontend/
+COPY backend/package.json ./backend/
 
-# Install all workspace deps (including devDependencies needed for tsc + vite)
+# Install all deps (hoists devDeps like typescript & vite to /app/node_modules)
 RUN npm ci
 
-# Copy source and build
-# Prepend the root workspace bin dir to PATH so hoisted tools (tsc, vite)
-# are found when the build script runs inside the frontend sub-package.
+# Copy frontend source
 COPY frontend/ ./frontend/
-RUN PATH=/app/node_modules/.bin:$PATH npm run build --workspace=frontend
+
+# Build — run tsc and vite directly so they resolve from the hoisted root
+RUN cd frontend && ../node_modules/.bin/tsc && ../node_modules/.bin/vite build
 
 # ── Stage 2: Serve with nginx ────────────────────
 FROM nginx:alpine AS runner
