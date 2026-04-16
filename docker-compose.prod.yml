@@ -74,6 +74,8 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set CLERK_PUBLISHABLE_KEY in .env.production}
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:80"

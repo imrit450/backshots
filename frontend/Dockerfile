@@ -12,6 +12,10 @@ RUN npm install
 # Copy frontend source
 COPY frontend/ ./
 
+# Vite bakes VITE_* vars into the bundle at build time — pass via --build-arg
+ARG VITE_CLERK_PUBLISHABLE_KEY
+ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
+
 RUN npm run build
 
 # ── Stage 2: Serve with nginx ────────────────────
