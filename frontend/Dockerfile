@@ -12,8 +12,7 @@ RUN npm install
 # Copy frontend source
 COPY frontend/ ./
 
-# Verify binaries exist, then build
-RUN ls -la node_modules/.bin/tsc node_modules/.bin/vite && tsc && vite build
+RUN npm run build
 
 # ── Stage 2: Serve with nginx ────────────────────
 FROM nginx:alpine AS runner
