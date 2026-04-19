@@ -21,43 +21,41 @@ router.post('/:eventId/exports', authenticateHost, asyncHandler(async (req: Requ
     throw new AppError('Event not found', 404);
   }
 
-  // Get approved, non-hidden photos
-  const photos = await prisma.photo.findMany({
-    where: {
-      eventId: event.id,
-      status: 'APPROVED',
-      hidden: false,
-    },
-    include: {
-      guestSession: { select: { displayName: true } },
-    },
-  });
+  const [photos, videos] = await Promise.all([
+    prisma.photo.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+    prisma.video.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+  ]);
 
-  if (photos.length === 0) {
-    throw new AppError('No photos to export', 400);
+  if (photos.length === 0 && videos.length === 0) {
+    throw new AppError('No approved media to export', 400);
   }
 
-  // Create export record
   const exportRecord = await prisma.export.create({
     data: {
       eventId: event.id,
       status: 'PROCESSING',
       photoCount: photos.length,
+      videoCount: videos.length,
     },
   });
 
-  // Generate ZIP asynchronously
   const zipFilename = `${event.eventCode}_${exportRecord.id}.zip`;
   const zipPath = path.join(config.exportDir, zipFilename);
 
-  // Start async ZIP generation
-  generateZip(zipPath, photos, exportRecord.id, event.title).catch(console.error);
+  generateZip(zipPath, photos, videos, exportRecord.id, event.title).catch(console.error);
 
   res.status(202).json({
     export: {
       id: exportRecord.id,
       status: 'PROCESSING',
       photoCount: photos.length,
+      videoCount: videos.length,
     },
   });
 }));
@@ -87,6 +85,7 @@ router.get(
         id: exportRecord.id,
         status: exportRecord.status,
         photoCount: exportRecord.photoCount,
+        videoCount: exportRecord.videoCount,
         fileUrl: exportRecord.fileUrl,
         createdAt: exportRecord.createdAt.toISOString(),
         completedAt: exportRecord.completedAt?.toISOString() || null,
@@ -114,6 +113,7 @@ router.get('/:eventId/exports', authenticateHost, asyncHandler(async (req: Reque
       id: e.id,
       status: e.status,
       photoCount: e.photoCount,
+      videoCount: e.videoCount,
       fileUrl: e.fileUrl,
       createdAt: e.createdAt.toISOString(),
       completedAt: e.completedAt?.toISOString() || null,
@@ -124,6 +124,7 @@ router.get('/:eventId/exports', authenticateHost, asyncHandler(async (req: Reque
 async function generateZip(
   zipPath: string,
   photos: any[],
+  videos: any[],
   exportId: string,
   eventTitle: string
 ): Promise<void> {
@@ -144,9 +145,26 @@ async function generateZip(
           const stream = await storage.getStream(photo.largeUrl);
           const ext = path.extname(photo.largeUrl) || '.avif';
           archive.append(stream, {
-            name: `${eventTitle}/${guestName}_${String(index).padStart(4, '0')}${ext}`,
+            name: `${eventTitle}/photos/${guestName}_${String(index).padStart(4, '0')}${ext}`,
           });
           index++;
+        } catch {
+          // File doesn't exist or inaccessible, skip
+        }
+      }
+    }
+
+    let videoIndex = 1;
+    for (const video of videos) {
+      const guestName = video.guestSession.displayName || 'anonymous';
+      if (video.url) {
+        try {
+          const stream = await storage.getStream(video.url);
+          const ext = path.extname(video.url) || '.mp4';
+          archive.append(stream, {
+            name: `${eventTitle}/videos/${guestName}_${String(videoIndex).padStart(4, '0')}${ext}`,
+          });
+          videoIndex++;
         } catch {
           // File doesn't exist or inaccessible, skip
         }

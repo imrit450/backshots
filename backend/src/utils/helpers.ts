@@ -56,7 +56,11 @@ export async function eventWhereForHost(
     select: { role: true },
   });
 
-  return host?.role === 'admin'
-    ? { id: eventId }
-    : { id: eventId, hostId };
+  if (host?.role === 'admin') return { id: eventId };
+
+  const moderator = await (prisma as any).eventModerator.findUnique({
+    where: { eventId_hostId: { eventId, hostId } },
+  });
+
+  return moderator ? { id: eventId } : { id: eventId, hostId };
 }

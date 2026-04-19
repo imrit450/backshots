@@ -117,11 +117,7 @@ export default function App() {
       />
       <Route
         path="/host/events/:eventId/livestream"
-        element={
-          <ProtectedRoute>
-            <Livestream />
-          </ProtectedRoute>
-        }
+        element={<Livestream />}
       />
       <Route
         path="/host/admin"

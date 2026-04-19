@@ -195,7 +195,7 @@ router.get(
   })
 );
 
-// DELETE /v1/events/:eventId/photos/:photoId - Guest deletes own PENDING photo
+// DELETE /v1/events/:eventId/photos/:photoId - Guest deletes own photo
 router.delete(
   '/:eventId/photos/:photoId',
   authenticateGuest,
@@ -214,10 +214,6 @@ router.delete(
 
     if (!photo) {
       throw new AppError('Photo not found', 404);
-    }
-
-    if (photo.status !== 'PENDING') {
-      throw new AppError('Only pending photos can be deleted', 403);
     }
 
     // Delete files from disk

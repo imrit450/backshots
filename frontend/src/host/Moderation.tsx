@@ -20,6 +20,9 @@ import {
   MoreVertical,
   Radio,
   Play,
+  Users,
+  UserPlus,
+  UserMinus,
 } from 'lucide-react';
 
 const POLL_INTERVAL = 10_000;
@@ -81,6 +84,46 @@ export default function Moderation() {
 
   // ── Live feed hover ─────────────────────────────────────────────────────
   const [liveFeedHover, setLiveFeedHover] = useState(false);
+
+  // ── Moderator modal state ────────────────────────────────────────────────
+  const [showModeratorModal, setShowModeratorModal] = useState(false);
+  const [moderators, setModerators] = useState<any[]>([]);
+  const [modEmail, setModEmail] = useState('');
+  const [modLoading, setModLoading] = useState(false);
+  const [modError, setModError] = useState<string | null>(null);
+
+  const fetchModerators = useCallback(async () => {
+    if (!eventId) return;
+    try {
+      const data = await api.getEventModerators(eventId);
+      setModerators(data.moderators);
+    } catch { /* not owner — hide silently */ }
+  }, [eventId]);
+
+  const handleAddModerator = async () => {
+    if (!eventId || !modEmail.trim()) return;
+    setModLoading(true);
+    setModError(null);
+    try {
+      await api.addEventModerator(eventId, modEmail.trim());
+      setModEmail('');
+      await fetchModerators();
+    } catch (err: any) {
+      setModError(err.message || 'Failed to add moderator');
+    } finally {
+      setModLoading(false);
+    }
+  };
+
+  const handleRemoveModerator = async (hostId: string) => {
+    if (!eventId) return;
+    try {
+      await api.removeEventModerator(eventId, hostId);
+      setModerators((prev) => prev.filter((m) => m.id !== hostId));
+    } catch (err: any) {
+      setModError(err.message || 'Failed to remove moderator');
+    }
+  };
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -151,6 +194,29 @@ export default function Moderation() {
     const interval = setInterval(() => fetchPhotos(), POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [fetchPhotos, selectMode]);
+
+  // ── Single delete ────────────────────────────────────────────────────────
+  const handleSingleDelete = async (itemId: string, isVideo = false) => {
+    if (!eventId) return;
+    if (!confirm(`Permanently delete this ${isVideo ? 'video' : 'photo'}? This cannot be undone.`)) return;
+    setActionInProgress(itemId + ':delete');
+    setActionError(null);
+    try {
+      if (isVideo) {
+        await api.bulkModerateVideos(eventId, [itemId], 'delete');
+        setVideos((prev) => prev.filter((v) => v.id !== itemId));
+      } else {
+        await api.bulkModeratePhotos(eventId, [itemId], 'delete');
+        setPhotos((prev) => prev.filter((p) => p.id !== itemId));
+      }
+      setLightboxPhoto((prev: any) => (prev?.id === itemId ? null : prev));
+      addToast({ type: 'success', message: `${isVideo ? 'Video' : 'Photo'} deleted`, duration: 3000 });
+    } catch (err: any) {
+      setActionError(err.message || 'Delete failed. Please try again.');
+    } finally {
+      setActionInProgress(null);
+    }
+  };
 
   // ── Single action ────────────────────────────────────────────────────────
   const handleAction = async (itemId: string, action: string, isVideo = false) => {
@@ -378,15 +444,94 @@ export default function Moderation() {
           </button>
         ))}
 
-        {!selectMode && photos.length > 0 && (
+        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+          {!selectMode && photos.length > 0 && (
+            <button
+              onClick={() => setSelectMode(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-sm bg-surface-container-highest text-on-surface-variant hover:text-on-surface hover:bg-surface-bright whitespace-nowrap transition-all"
+            >
+              <CheckSquare className="w-4 h-4" /> Select
+            </button>
+          )}
           <button
-            onClick={() => setSelectMode(true)}
-            className="ml-auto flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-sm bg-surface-container-highest text-on-surface-variant hover:text-on-surface hover:bg-surface-bright whitespace-nowrap transition-all"
+            onClick={() => { fetchModerators(); setShowModeratorModal(true); }}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-sm bg-surface-container-highest text-on-surface-variant hover:text-on-surface hover:bg-surface-bright whitespace-nowrap transition-all"
           >
-            <CheckSquare className="w-4 h-4" /> Select
+            <Users className="w-4 h-4" /> Team
           </button>
-        )}
+        </div>
       </div>
+
+      {/* ── Moderator modal ──────────────────────────────────────── */}
+      {showModeratorModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setShowModeratorModal(false)}
+        >
+          <div
+            className="bg-surface-container-low rounded-2xl w-full max-w-md p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-headline font-bold text-lg text-on-surface flex items-center gap-2">
+                <Users className="w-5 h-5 text-primary" /> Manage Team
+              </h2>
+              <button onClick={() => setShowModeratorModal(false)} className="text-on-surface-variant hover:text-on-surface transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Add by email */}
+            <div className="flex gap-2 mb-5">
+              <input
+                type="email"
+                placeholder="Email address"
+                value={modEmail}
+                onChange={(e) => { setModEmail(e.target.value); setModError(null); }}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddModerator()}
+                className="flex-1 bg-surface-container-highest border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <button
+                onClick={handleAddModerator}
+                disabled={modLoading || !modEmail.trim()}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary text-white font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-all"
+              >
+                {modLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                Add
+              </button>
+            </div>
+
+            {modError && (
+              <p className="text-error text-xs mb-3 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" /> {modError}
+              </p>
+            )}
+
+            {/* Moderator list */}
+            {moderators.length === 0 ? (
+              <p className="text-on-surface-variant text-sm text-center py-4">No additional moderators yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {moderators.map((m) => (
+                  <li key={m.id} className="flex items-center justify-between bg-surface-container-highest rounded-xl px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-on-surface">{m.displayName}</p>
+                      <p className="text-xs text-on-surface-variant">{m.email}</p>
+                    </div>
+                    <button
+                      onClick={() => handleRemoveModerator(m.id)}
+                      className="text-error/70 hover:text-error transition-colors p-1"
+                      title="Remove moderator"
+                    >
+                      <UserMinus className="w-4 h-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Content ───────────────────────────────────────────────── */}
       {(() => {
@@ -583,23 +728,30 @@ export default function Moderation() {
                           </button>
                         )}
                         {item.status === 'REJECTED' && (
-                          <button
-                            onClick={() => handleAction(item.id, 'approve', isVideo)}
-                            disabled={!!isActing}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
-                          >
-                            <CheckCircle className="w-3.5 h-3.5" /> Restore
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleAction(item.id, 'approve', isVideo)}
+                              disabled={!!isActing}
+                              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" /> Restore
+                            </button>
+                            <button
+                              onClick={() => handleAction(item.id, item.hidden ? 'unhide' : 'hide', isVideo)}
+                              disabled={!!isActing}
+                              className="w-9 flex items-center justify-center rounded-lg text-xs bg-surface-bright text-on-surface-variant hover:text-on-surface disabled:opacity-50 transition-colors"
+                            >
+                              {item.hidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                            </button>
+                          </>
                         )}
-                        {item.status !== 'PENDING' && item.status !== 'APPROVED' && (
-                          <button
-                            onClick={() => handleAction(item.id, item.hidden ? 'unhide' : 'hide', isVideo)}
-                            disabled={!!isActing}
-                            className="w-9 flex items-center justify-center rounded-lg text-xs bg-surface-bright text-on-surface-variant hover:text-on-surface disabled:opacity-50 transition-colors"
-                          >
-                            {item.hidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
+                        <button
+                          onClick={() => handleSingleDelete(item.id, isVideo)}
+                          disabled={!!isActing}
+                          className="w-9 flex items-center justify-center rounded-lg text-xs bg-error/10 text-error hover:bg-error/25 disabled:opacity-50 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   )}
@@ -745,6 +897,13 @@ export default function Moderation() {
                 <CheckCircle className="w-4 h-4" /> Restore
               </button>
             )}
+
+            <button
+              onClick={() => handleSingleDelete(lightboxPhoto.id)}
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-error/20 text-error hover:bg-error/30 text-sm font-bold transition-colors"
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
 
             <button
               onClick={() => {

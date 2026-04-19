@@ -48,6 +48,7 @@ export default function EventSettings() {
     moderationMode: 'AUTO' as 'AUTO' | 'APPROVE_FIRST',
     theme: 'classic',
     isActive: true,
+    livestreamEnabled: true,
   });
 
   useEffect(() => {
@@ -72,6 +73,7 @@ export default function EventSettings() {
           moderationMode: data.event.moderationMode,
           theme: data.event.theme || 'classic',
           isActive: data.event.isActive,
+          livestreamEnabled: data.event.livestreamEnabled ?? true,
         });
         setIconUrl(data.event.iconUrl || null);
       })
@@ -310,6 +312,34 @@ export default function EventSettings() {
                   placeholder="e.g. UTC, America/New_York"
                 />
               </div>
+            </div>
+
+            {/* Livestream toggle */}
+            <div className="flex items-center justify-between bg-surface-container-highest rounded-xl px-5 py-4 border border-outline-variant/30">
+              <div className="flex items-start gap-3">
+                <Eye className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-on-surface">Livestream</p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Allow anyone with the link to view the live media wall
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.livestreamEnabled}
+                onClick={() => setForm({ ...form, livestreamEnabled: !form.livestreamEnabled })}
+                className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2 focus:ring-offset-surface-container-highest ${
+                  form.livestreamEnabled ? 'bg-primary' : 'bg-outline-variant'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
+                    form.livestreamEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
 
             {/* Event Active toggle */}

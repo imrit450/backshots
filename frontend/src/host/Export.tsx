@@ -99,7 +99,7 @@ export default function ExportPage() {
                 Export Media Vault
               </h2>
               <p className="text-on-surface-variant text-sm leading-relaxed">
-                Bundle all approved photos into a single ZIP archive for download. Large events
+                Bundle all approved photos and videos into a single ZIP archive for download. Large events
                 may take a few moments to prepare.
               </p>
 
@@ -140,7 +140,7 @@ export default function ExportPage() {
             <div className="text-center">
               <p className="text-on-surface font-headline font-bold text-base">No exports yet</p>
               <p className="text-on-surface-variant text-sm mt-1">
-                Generate a bundle above to download your photos.
+                Generate a bundle above to download your photos and videos.
               </p>
             </div>
           </div>
@@ -175,7 +175,8 @@ export default function ExportPage() {
                     Export #{exports.length - index}
                   </p>
                   <p className="text-on-surface-variant text-xs mt-0.5">
-                    {exp.photoCount ?? '—'} photo{exp.photoCount !== 1 ? 's' : ''} ·{' '}
+                    {exp.photoCount ?? 0} photo{exp.photoCount !== 1 ? 's' : ''}
+                    {exp.videoCount > 0 ? ` · ${exp.videoCount} video${exp.videoCount !== 1 ? 's' : ''}` : ''} ·{' '}
                     {new Date(exp.createdAt).toLocaleString([], {
                       month: 'short',
                       day: 'numeric',

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 import { LogoWordmark } from '../components/Logo';
 
 const POLL_MS = 6_000;
@@ -18,6 +19,7 @@ function mergeMedia(photos: any[], videos: any[]): MediaItem[] {
 
 export default function Livestream() {
   const { eventId } = useParams<{ eventId: string }>();
+  const { isAuthenticated } = useAuth();
 
   const [event, setEvent] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
@@ -34,18 +36,12 @@ export default function Livestream() {
   // Initial load
   useEffect(() => {
     if (!eventId) return;
-    Promise.all([
-      api.getEvent(eventId),
-      api.getEventStats(eventId),
-      api.getEventQR(eventId),
-      api.getPhotos(eventId, { status: 'APPROVED', limit: '20' }),
-      api.getVideos(eventId),
-    ])
-      .then(([eventData, statsData, qrRes, photosData, videosData]) => {
-        setEvent(eventData.event);
-        setStats(statsData.stats);
-        setQrData(qrRes);
-        setItems(mergeMedia(photosData.photos || [], videosData.videos || []));
+    api.getStreamData(eventId)
+      .then((data) => {
+        setEvent(data.event);
+        setStats(data.stats);
+        setQrData(data.qr);
+        setItems(mergeMedia(data.photos || [], data.videos || []));
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -60,14 +56,10 @@ export default function Livestream() {
   const poll = useCallback(async () => {
     if (!eventId) return;
     try {
-      const [statsData, photosData, videosData] = await Promise.all([
-        api.getEventStats(eventId),
-        api.getPhotos(eventId, { status: 'APPROVED', limit: '20' }),
-        api.getVideos(eventId),
-      ]);
-      setStats(statsData.stats);
+      const data = await api.getStreamData(eventId);
+      setStats(data.stats);
 
-      const incoming = mergeMedia(photosData.photos || [], videosData.videos || []);
+      const incoming = mergeMedia(data.photos || [], data.videos || []);
       setItems((current) => {
         const currentIds = new Set(current.map((i) => i.id));
         const newItems = incoming.filter((i) => !currentIds.has(i.id));
@@ -241,23 +233,25 @@ export default function Livestream() {
             </div>
           </div>
 
-          {/* Back to dashboard */}
-          <Link
-            to={`/host/events/${eventId}`}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl transition-colors"
-            style={{
-              fontSize: 12,
-              fontFamily: 'Plus Jakarta Sans, sans-serif',
-              fontWeight: 700,
-              background: 'rgba(38,38,38,0.7)',
-              color: '#adaaaa',
-              border: '1px solid rgba(72,72,71,0.4)',
-              backdropFilter: 'blur(8px)',
-              textDecoration: 'none',
-            }}
-          >
-            ← Dashboard
-          </Link>
+          {/* Back to dashboard — only for logged-in hosts */}
+          {isAuthenticated && (
+            <Link
+              to={`/host/events/${eventId}`}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl transition-colors"
+              style={{
+                fontSize: 12,
+                fontFamily: 'Plus Jakarta Sans, sans-serif',
+                fontWeight: 700,
+                background: 'rgba(38,38,38,0.7)',
+                color: '#adaaaa',
+                border: '1px solid rgba(72,72,71,0.4)',
+                backdropFilter: 'blur(8px)',
+                textDecoration: 'none',
+              }}
+            >
+              ← Dashboard
+            </Link>
+          )}
         </div>
       </nav>
 

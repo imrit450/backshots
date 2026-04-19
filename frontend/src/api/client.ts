@@ -256,6 +256,16 @@ class ApiClient {
     );
   }
 
+  async bulkModerateVideos(eventId: string, videoIds: string[], action: string) {
+    return this.request<{ success: boolean; affected: number; action: string }>(
+      `/events/${eventId}/videos/bulk`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ photoIds: videoIds, action }),
+      }
+    );
+  }
+
   async moderatePhoto(eventId: string, photoId: string, data: { hidden?: boolean; status?: string }) {
     return this.request<{ photo: any }>(`/events/${eventId}/photos/${photoId}`, {
       method: 'PATCH',
@@ -267,6 +277,31 @@ class ApiClient {
     return this.request<{ video: any }>(`/events/${eventId}/videos/${videoId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
+    });
+  }
+
+  // Public stream (no auth)
+  async getStreamData(eventId: string) {
+    return this.request<{ event: any; stats: any; qr: any; photos: any[]; videos: any[] }>(
+      `/events/${eventId}/stream`
+    );
+  }
+
+  // Event moderators
+  async getEventModerators(eventId: string) {
+    return this.request<{ moderators: any[] }>(`/events/${eventId}/moderators`);
+  }
+
+  async addEventModerator(eventId: string, email: string) {
+    return this.request<{ moderator: any }>(`/events/${eventId}/moderators`, {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async removeEventModerator(eventId: string, hostId: string) {
+    return this.request<{ success: boolean }>(`/events/${eventId}/moderators/${hostId}`, {
+      method: 'DELETE',
     });
   }
 

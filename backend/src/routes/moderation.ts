@@ -4,7 +4,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { prisma } from '../index';
 import { authenticateHost } from '../middleware/auth';
 import { AppError } from '../middleware/errorHandler';
-import { deletePhotoFiles } from '../services/media';
+import { deletePhotoFiles, deleteVideoFile } from '../services/media';
 import { eventWhereForHost } from '../utils/helpers';
 
 const router = Router();
@@ -184,6 +184,44 @@ router.post(
       where: { id: { in: matchedIds } },
       data: updateData,
     });
+
+    res.json({ success: true, affected: matchedIds.length, action });
+  })
+);
+
+// POST /v1/events/:eventId/videos/bulk - Bulk moderate/delete videos
+router.post(
+  '/:eventId/videos/bulk',
+  authenticateHost,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { photoIds: videoIds, action } = bulkModerateSchema.parse(req.body);
+
+    const bulkWhere = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+    const event = await prisma.event.findFirst({ where: bulkWhere });
+
+    if (!event) throw new AppError('Event not found', 404);
+
+    const videos = await prisma.video.findMany({
+      where: { id: { in: videoIds }, eventId: event.id },
+    });
+
+    if (videos.length === 0) throw new AppError('No matching videos found', 404);
+
+    const matchedIds = videos.map((v) => v.id);
+
+    if (action === 'delete') {
+      await Promise.allSettled(videos.map((v) => deleteVideoFile({ url: v.url })));
+      await prisma.video.deleteMany({ where: { id: { in: matchedIds } } });
+      return res.json({ success: true, affected: matchedIds.length, action });
+    }
+
+    const updateData: any = {};
+    if (action === 'approve') updateData.status = 'APPROVED';
+    if (action === 'reject') updateData.status = 'REJECTED';
+    if (action === 'hide') updateData.hidden = true;
+    if (action === 'unhide') updateData.hidden = false;
+
+    await prisma.video.updateMany({ where: { id: { in: matchedIds } }, data: updateData });
 
     res.json({ success: true, affected: matchedIds.length, action });
   })

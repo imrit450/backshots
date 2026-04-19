@@ -30,6 +30,7 @@ const createEventSchema = z.object({
   allowedFilters: z.array(z.string()).default([]),
   moderationMode: z.enum(['AUTO', 'APPROVE_FIRST']).default('AUTO'),
   theme: z.string().max(30).default('classic'),
+  livestreamEnabled: z.boolean().default(true),
 });
 
 const updateEventSchema = z.object({
@@ -48,6 +49,7 @@ const updateEventSchema = z.object({
   moderationMode: z.enum(['AUTO', 'APPROVE_FIRST']).optional(),
   theme: z.string().max(30).optional(),
   isActive: z.boolean().optional(),
+  livestreamEnabled: z.boolean().optional(),
 });
 
 // POST /v1/events - Host creates event (requires canCreateEvents or admin role)
@@ -377,6 +379,125 @@ router.get('/:eventCode/public', asyncHandler(async (req: Request, res: Response
   });
 }));
 
+// GET /v1/events/:eventId/stream - Public livestream data (no auth required)
+router.get('/:eventId/stream', asyncHandler(async (req: Request, res: Response) => {
+  const event = await prisma.event.findFirst({
+    where: { id: req.params.eventId, isActive: true },
+  });
+
+  if (!event) throw new AppError('Event not found', 404);
+  if (!event.livestreamEnabled) throw new AppError('Livestream is disabled for this event', 403);
+
+  const [photos, videos] = await Promise.all([
+    prisma.photo.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+      orderBy: { capturedAt: 'desc' },
+      take: 30,
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+    prisma.video.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+      orderBy: { capturedAt: 'desc' },
+      take: 20,
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+  ]);
+
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+  const origin = `${proto}://${host}`;
+  const qrDataUrl = await generateQRCodeDataUrl(event.eventCode, origin);
+  const eventUrl = getEventUrl(event.eventCode, origin);
+
+  res.json({
+    event: {
+      id: event.id,
+      title: event.title,
+      theme: event.theme,
+      iconUrl: event.iconUrl,
+    },
+    stats: {
+      totalPhotos: photos.length,
+      totalVideos: videos.length,
+    },
+    qr: { qrCode: qrDataUrl, eventUrl, eventCode: event.eventCode },
+    photos: photos.map((p) => ({
+      id: p.id,
+      capturedAt: p.capturedAt.toISOString(),
+      thumbUrl: p.thumbUrl,
+      largeUrl: p.largeUrl,
+      guestName: p.guestSession.displayName,
+    })),
+    videos: videos.map((v) => ({
+      id: v.id,
+      capturedAt: v.capturedAt.toISOString(),
+      url: v.url,
+      durationSec: v.durationSec,
+      guestName: v.guestSession.displayName,
+    })),
+  });
+}));
+
+// GET /v1/events/:eventId/moderators - List event moderators (owner or admin)
+router.get('/:eventId/moderators', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+  const event = await prisma.event.findFirst({ where });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const moderators = await (prisma as any).eventModerator.findMany({
+    where: { eventId: event.id },
+    include: { host: { select: { id: true, email: true, displayName: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  res.json({ moderators: moderators.map((m: any) => ({ id: m.host.id, email: m.host.email, displayName: m.host.displayName, addedAt: m.createdAt })) });
+}));
+
+// POST /v1/events/:eventId/moderators - Add moderator by email (owner or admin only)
+router.post('/:eventId/moderators', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const { email } = z.object({ email: z.string().email() }).parse(req.body);
+
+  // Only the event owner or admin can add moderators
+  const event = await prisma.event.findFirst({
+    where: { id: req.params.eventId },
+  });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const caller = await prisma.host.findUnique({ where: { id: req.hostUser!.hostId }, select: { role: true } });
+  if (caller?.role !== 'admin' && event.hostId !== req.hostUser!.hostId) {
+    throw new AppError('Only the event owner can manage moderators', 403);
+  }
+
+  const target = await prisma.host.findUnique({ where: { email }, select: { id: true, email: true, displayName: true } });
+  if (!target) throw new AppError('No account found with that email', 404);
+  if (target.id === event.hostId) throw new AppError('The event owner is already a moderator', 400);
+
+  await (prisma as any).eventModerator.upsert({
+    where: { eventId_hostId: { eventId: event.id, hostId: target.id } },
+    create: { eventId: event.id, hostId: target.id },
+    update: {},
+  });
+
+  res.status(201).json({ moderator: { id: target.id, email: target.email, displayName: target.displayName } });
+}));
+
+// DELETE /v1/events/:eventId/moderators/:hostId - Remove moderator (owner or admin only)
+router.delete('/:eventId/moderators/:hostId', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const event = await prisma.event.findFirst({ where: { id: req.params.eventId } });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const caller = await prisma.host.findUnique({ where: { id: req.hostUser!.hostId }, select: { role: true } });
+  if (caller?.role !== 'admin' && event.hostId !== req.hostUser!.hostId) {
+    throw new AppError('Only the event owner can manage moderators', 403);
+  }
+
+  await (prisma as any).eventModerator.deleteMany({
+    where: { eventId: event.id, hostId: req.params.hostId },
+  });
+
+  res.json({ success: true });
+}));
+
 function formatEvent(event: any) {
   return {
     id: event.id,
@@ -398,6 +519,7 @@ function formatEvent(event: any) {
     theme: event.theme,
     eventCode: event.eventCode,
     isActive: event.isActive,
+    livestreamEnabled: event.livestreamEnabled,
     createdAt: event.createdAt.toISOString(),
     updatedAt: event.updatedAt.toISOString(),
   };
