@@ -1,6 +1,8 @@
 import { encryptPassword, clearPublicKeyCache } from '../utils/crypto';
 
-const API_BASE = '/v1';
+// In native Capacitor builds VITE_API_BASE must be the absolute server URL (e.g. https://api.example.com/v1)
+// because relative paths resolve to capacitor://localhost which never reaches the backend.
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/v1';
 
 class ApiClient {
   private hostToken: string | null = null;
@@ -288,6 +290,10 @@ class ApiClient {
   }
 
   // Event moderators
+  async searchModerators(eventId: string, q: string) {
+    return this.request<{ hosts: any[] }>(`/events/${eventId}/moderators/search?q=${encodeURIComponent(q)}`);
+  }
+
   async getEventModerators(eventId: string) {
     return this.request<{ moderators: any[] }>(`/events/${eventId}/moderators`);
   }

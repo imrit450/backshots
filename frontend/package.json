@@ -6,9 +6,18 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:native": "tsc && vite build && npx cap sync",
+    "open:ios": "npx cap open ios",
+    "open:android": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor-community/camera-preview": "^8.0.1",
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/ios": "^8.3.1",
     "@clerk/react": "6.0.0-snapshot.v20260302195528",
     "lucide-react": "^0.474.0",
     "qrcode.react": "^4.2.0",

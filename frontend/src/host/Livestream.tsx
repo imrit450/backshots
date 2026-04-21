@@ -17,9 +17,51 @@ function mergeMedia(photos: any[], videos: any[]): MediaItem[] {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Blob-URL image cache — each photo URL is fetched exactly once per session
+// and stored as a blob: URL so subsequent renders read from memory.
+// ---------------------------------------------------------------------------
+function useBlobCache() {
+  // original URL → blob: URL
+  const cache = useRef<Map<string, string>>(new Map());
+  // URLs currently in flight
+  const inflight = useRef<Set<string>>(new Set());
+  // Trigger re-renders when new entries are ready
+  const [, bump] = useState(0);
+
+  const preload = useCallback((url: string) => {
+    if (!url || cache.current.has(url) || inflight.current.has(url)) return;
+    inflight.current.add(url);
+    fetch(url)
+      .then((r) => r.blob())
+      .then((blob) => {
+        cache.current.set(url, URL.createObjectURL(blob));
+        inflight.current.delete(url);
+        bump((n) => n + 1);
+      })
+      .catch(() => inflight.current.delete(url));
+  }, []);
+
+  const resolve = useCallback(
+    (url: string) => cache.current.get(url) ?? url,
+    []
+  );
+
+  // Revoke blob URLs on unmount to free memory
+  useEffect(
+    () => () => {
+      cache.current.forEach((blobUrl) => URL.revokeObjectURL(blobUrl));
+    },
+    []
+  );
+
+  return { preload, resolve };
+}
+
 export default function Livestream() {
   const { eventId } = useParams<{ eventId: string }>();
   const { isAuthenticated } = useAuth();
+  const { preload, resolve } = useBlobCache();
 
   const [event, setEvent] = useState<any>(null);
   const [stats, setStats] = useState<any>(null);
@@ -29,21 +71,34 @@ export default function Livestream() {
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
   const [sliding, setSliding] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [livestreamDisabled, setLivestreamDisabled] = useState(false);
   const heroTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const slideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heroIndexRef = useRef(0);
+
+  // Preload all photo URLs whenever the items list grows
+  useEffect(() => {
+    items.forEach((item) => {
+      if (item._type === 'photo' && item.largeUrl) preload(item.largeUrl);
+    });
+  }, [items, preload]);
 
   // Initial load
   useEffect(() => {
     if (!eventId) return;
     api.getStreamData(eventId)
       .then((data) => {
+        setLivestreamDisabled(false);
         setEvent(data.event);
         setStats(data.stats);
         setQrData(data.qr);
         setItems(mergeMedia(data.photos || [], data.videos || []));
       })
-      .catch(console.error)
+      .catch((err: any) => {
+        if (err?.message?.toLowerCase().includes('disabled')) {
+          setLivestreamDisabled(true);
+        }
+      })
       .finally(() => setLoading(false));
   }, [eventId]);
 
@@ -57,6 +112,7 @@ export default function Livestream() {
     if (!eventId) return;
     try {
       const data = await api.getStreamData(eventId);
+      setLivestreamDisabled(false);
       setStats(data.stats);
 
       const incoming = mergeMedia(data.photos || [], data.videos || []);
@@ -69,8 +125,10 @@ export default function Livestream() {
         updated.splice(insertAt, 0, ...newItems);
         return updated;
       });
-    } catch {
-      // silent
+    } catch (err: any) {
+      if (err?.message?.toLowerCase().includes('disabled')) {
+        setLivestreamDisabled(true);
+      }
     }
   }, [eventId]);
 
@@ -135,6 +193,18 @@ export default function Livestream() {
     );
   }
 
+  if (livestreamDisabled) {
+    return (
+      <div className="w-screen h-screen bg-[#0e0e0e] flex flex-col items-center justify-center gap-4">
+        <span style={{ fontSize: 48, opacity: 0.25 }}>📡</span>
+        <p style={{ color: '#adaaaa', fontSize: 15, fontFamily: 'Plus Jakarta Sans, sans-serif' }}>
+          Livestream is currently disabled
+        </p>
+        <p style={{ color: '#555', fontSize: 12 }}>The host has turned off the live feed for this event.</p>
+      </div>
+    );
+  }
+
   return (
     <div
       className="relative overflow-hidden font-body"
@@ -159,12 +229,13 @@ export default function Livestream() {
           to   { opacity: 1; filter: blur(0px); }
         }
       `}</style>
+
       {/* ── Ambient blurred background from hero item ── */}
       {heroItem?._type === 'photo' && heroItem.largeUrl ? (
         <div
           className="absolute inset-0 z-0 transition-all duration-1000"
           style={{
-            backgroundImage: `url(${heroItem.largeUrl})`,
+            backgroundImage: `url(${resolve(heroItem.largeUrl)})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             filter: 'blur(64px) brightness(0.28) saturate(3)',
@@ -279,9 +350,9 @@ export default function Livestream() {
                 <video key={leftItem.id} src={leftItem.url}
                   className="absolute inset-0 w-full h-full object-cover"
                   style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }}
-                  autoPlay loop muted playsInline />
+                  autoPlay loop muted playsInline preload="auto" />
               ) : (
-                <img key={leftItem.id} src={leftItem.largeUrl} alt=""
+                <img key={leftItem.id} src={resolve(leftItem.largeUrl)} alt=""
                   className="absolute inset-0 w-full h-full object-cover"
                   style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }} />
               )
@@ -303,7 +374,7 @@ export default function Livestream() {
                 {/* Blurred fill background */}
                 {heroItem._type === 'photo' ? (
                   <img
-                    src={heroItem.largeUrl} alt=""
+                    src={resolve(heroItem.largeUrl)} alt=""
                     className="absolute inset-0 w-full h-full object-cover"
                     style={{ filter: 'blur(20px) brightness(0.5)', transform: 'scale(1.1)' }}
                   />
@@ -319,12 +390,12 @@ export default function Livestream() {
                       src={prevItem.url}
                       className="absolute inset-0 w-full h-full object-cover"
                       style={{ animation: 'slideOutLeft 0.6s cubic-bezier(0.4,0,0.2,1) forwards', zIndex: 2 }}
-                      autoPlay loop muted playsInline
+                      autoPlay loop muted playsInline preload="auto"
                     />
                   ) : (
                     <img
                       key={`prev-${prevItem.id}`}
-                      src={prevItem.largeUrl} alt=""
+                      src={resolve(prevItem.largeUrl)} alt=""
                       className="absolute inset-0 w-full h-full object-cover"
                       style={{ animation: 'slideOutLeft 0.6s cubic-bezier(0.4,0,0.2,1) forwards', zIndex: 2 }}
                     />
@@ -341,12 +412,12 @@ export default function Livestream() {
                       animation: sliding ? 'slideInRight 0.6s cubic-bezier(0.4,0,0.2,1) forwards' : 'none',
                       zIndex: 3,
                     }}
-                    autoPlay loop muted playsInline
+                    autoPlay loop muted playsInline preload="auto"
                   />
                 ) : (
                   <img
                     key={heroItem.id}
-                    src={heroItem.largeUrl} alt=""
+                    src={resolve(heroItem.largeUrl)} alt=""
                     className="absolute inset-0 w-full h-full object-cover"
                     style={{
                       animation: sliding ? 'slideInRight 0.6s cubic-bezier(0.4,0,0.2,1) forwards' : 'none',
@@ -439,9 +510,9 @@ export default function Livestream() {
                 <video key={rightItem.id} src={rightItem.url}
                   className="absolute inset-0 w-full h-full object-cover"
                   style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }}
-                  autoPlay loop muted playsInline />
+                  autoPlay loop muted playsInline preload="auto" />
               ) : (
-                <img key={rightItem.id} src={rightItem.largeUrl} alt=""
+                <img key={rightItem.id} src={resolve(rightItem.largeUrl)} alt=""
                   className="absolute inset-0 w-full h-full object-cover"
                   style={{ animation: 'sideImageIn 0.7s cubic-bezier(0.4,0,0.2,1) forwards' }} />
               )
@@ -452,9 +523,7 @@ export default function Livestream() {
 
       {/* ── QR code — bottom right ── */}
       {qrData && (
-        <div
-          className="absolute bottom-8 right-8 z-50 flex flex-col items-center gap-3"
-        >
+        <div className="absolute bottom-8 right-8 z-50 flex flex-col items-center gap-3">
           <div
             className="p-3 rounded-2xl"
             style={{

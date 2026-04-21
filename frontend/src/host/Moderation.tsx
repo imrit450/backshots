@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useToast } from '../components/Toast';
@@ -88,9 +88,13 @@ export default function Moderation() {
   // ── Moderator modal state ────────────────────────────────────────────────
   const [showModeratorModal, setShowModeratorModal] = useState(false);
   const [moderators, setModerators] = useState<any[]>([]);
-  const [modEmail, setModEmail] = useState('');
-  const [modLoading, setModLoading] = useState(false);
+  const [modSearch, setModSearch] = useState('');
+  const [modResults, setModResults] = useState<any[]>([]);
+  const [modSearching, setModSearching] = useState(false);
+  const [modAdding, setModAdding] = useState<string | null>(null);
+  const [modRemoving, setModRemoving] = useState<string | null>(null);
   const [modError, setModError] = useState<string | null>(null);
+  const modSearchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchModerators = useCallback(async () => {
     if (!eventId) return;
@@ -100,28 +104,47 @@ export default function Moderation() {
     } catch { /* not owner — hide silently */ }
   }, [eventId]);
 
-  const handleAddModerator = async () => {
-    if (!eventId || !modEmail.trim()) return;
-    setModLoading(true);
+  const handleModSearch = (value: string) => {
+    setModSearch(value);
+    setModError(null);
+    if (modSearchRef.current) clearTimeout(modSearchRef.current);
+    if (value.trim().length < 2) { setModResults([]); return; }
+    setModSearching(true);
+    modSearchRef.current = setTimeout(async () => {
+      try {
+        const data = await api.searchModerators(eventId!, value.trim());
+        setModResults(data.hosts);
+      } catch { setModResults([]); }
+      finally { setModSearching(false); }
+    }, 300);
+  };
+
+  const handleAddModerator = async (host: any) => {
+    if (!eventId) return;
+    setModAdding(host.id);
     setModError(null);
     try {
-      await api.addEventModerator(eventId, modEmail.trim());
-      setModEmail('');
-      await fetchModerators();
+      await api.addEventModerator(eventId, host.email);
+      setModResults((prev) => prev.filter((h) => h.id !== host.id));
+      setModerators((prev) => [...prev, { ...host, addedAt: new Date().toISOString() }]);
     } catch (err: any) {
       setModError(err.message || 'Failed to add moderator');
     } finally {
-      setModLoading(false);
+      setModAdding(null);
     }
   };
 
   const handleRemoveModerator = async (hostId: string) => {
     if (!eventId) return;
+    setModRemoving(hostId);
+    setModError(null);
     try {
       await api.removeEventModerator(eventId, hostId);
       setModerators((prev) => prev.filter((m) => m.id !== hostId));
     } catch (err: any) {
       setModError(err.message || 'Failed to remove moderator');
+    } finally {
+      setModRemoving(null);
     }
   };
 
@@ -466,69 +489,127 @@ export default function Moderation() {
       {showModeratorModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={() => setShowModeratorModal(false)}
+          onClick={() => { setShowModeratorModal(false); setModSearch(''); setModResults([]); setModError(null); }}
         >
           <div
-            className="bg-surface-container-low rounded-2xl w-full max-w-md p-6 shadow-2xl"
+            className="bg-surface-container-low rounded-2xl w-full max-w-md shadow-2xl flex flex-col max-h-[80vh]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="font-headline font-bold text-lg text-on-surface flex items-center gap-2">
-                <Users className="w-5 h-5 text-primary" /> Manage Team
-              </h2>
-              <button onClick={() => setShowModeratorModal(false)} className="text-on-surface-variant hover:text-on-surface transition-colors">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-outline-variant/10 flex-shrink-0">
+              <div>
+                <h2 className="font-headline font-bold text-lg text-on-surface flex items-center gap-2">
+                  <Users className="w-5 h-5 text-primary" /> Manage Moderators
+                </h2>
+                <p className="text-xs text-on-surface-variant mt-0.5">
+                  Moderators can approve, reject and delete media for this event.
+                </p>
+              </div>
+              <button
+                onClick={() => { setShowModeratorModal(false); setModSearch(''); setModResults([]); setModError(null); }}
+                className="text-on-surface-variant hover:text-on-surface transition-colors p-1 flex-shrink-0"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Add by email */}
-            <div className="flex gap-2 mb-5">
-              <input
-                type="email"
-                placeholder="Email address"
-                value={modEmail}
-                onChange={(e) => { setModEmail(e.target.value); setModError(null); }}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddModerator()}
-                className="flex-1 bg-surface-container-highest border border-outline-variant/30 rounded-xl px-4 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-              <button
-                onClick={handleAddModerator}
-                disabled={modLoading || !modEmail.trim()}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-primary text-white font-bold text-sm disabled:opacity-50 hover:opacity-90 transition-all"
-              >
-                {modLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                Add
-              </button>
+            <div className="px-6 py-5 flex-1 overflow-y-auto space-y-5">
+              {/* Search input */}
+              <div className="relative">
+                <div className="relative">
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Search by name or email…"
+                    value={modSearch}
+                    onChange={(e) => handleModSearch(e.target.value)}
+                    className="w-full bg-surface-container-highest border border-outline-variant/30 rounded-xl pl-4 pr-10 py-3 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40">
+                    {modSearching
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <Users className="w-4 h-4" />}
+                  </div>
+                </div>
+
+                {/* Search results dropdown */}
+                {modResults.length > 0 && (
+                  <ul className="absolute z-10 top-full mt-1.5 w-full bg-surface-container rounded-xl border border-outline-variant/20 shadow-xl overflow-hidden">
+                    {modResults.map((h) => (
+                      <li key={h.id}>
+                        <button
+                          onClick={() => handleAddModerator(h)}
+                          disabled={modAdding === h.id}
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-bright transition-colors text-left disabled:opacity-60"
+                        >
+                          {/* Avatar */}
+                          <div className="w-8 h-8 rounded-full bg-primary/15 text-primary flex items-center justify-center text-xs font-bold flex-shrink-0">
+                            {h.displayName?.[0]?.toUpperCase() ?? '?'}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-on-surface truncate">{h.displayName}</p>
+                            <p className="text-xs text-on-surface-variant truncate">{h.email}</p>
+                          </div>
+                          {modAdding === h.id
+                            ? <Loader2 className="w-4 h-4 animate-spin text-primary flex-shrink-0" />
+                            : <UserPlus className="w-4 h-4 text-primary flex-shrink-0" />}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {modSearch.trim().length >= 2 && !modSearching && modResults.length === 0 && (
+                  <p className="absolute top-full mt-2 w-full text-center text-xs text-on-surface-variant bg-surface-container rounded-xl px-4 py-3 border border-outline-variant/20">
+                    No accounts found for "{modSearch}"
+                  </p>
+                )}
+              </div>
+
+              {modError && (
+                <div className="flex items-center gap-2 bg-error/10 text-error text-xs px-3 py-2.5 rounded-xl border border-error/20">
+                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {modError}
+                </div>
+              )}
+
+              {/* Current moderators */}
+              <div>
+                <p className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-3">
+                  Current Moderators {moderators.length > 0 && `· ${moderators.length}`}
+                </p>
+                {moderators.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-6 text-on-surface-variant/50">
+                    <Users className="w-8 h-8" />
+                    <p className="text-sm">No moderators added yet</p>
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {moderators.map((m) => (
+                      <li key={m.id} className="flex items-center gap-3 bg-surface-container-highest rounded-xl px-4 py-3">
+                        <div className="w-9 h-9 rounded-full bg-secondary/15 text-secondary flex items-center justify-center text-sm font-bold flex-shrink-0">
+                          {m.displayName?.[0]?.toUpperCase() ?? '?'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-on-surface truncate">{m.displayName}</p>
+                          <p className="text-xs text-on-surface-variant truncate">{m.email}</p>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveModerator(m.id)}
+                          disabled={modRemoving === m.id}
+                          className="flex items-center gap-1 text-xs text-error/70 hover:text-error transition-colors disabled:opacity-50 flex-shrink-0 px-2 py-1 rounded-lg hover:bg-error/10"
+                          title="Remove moderator"
+                        >
+                          {modRemoving === m.id
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <UserMinus className="w-3.5 h-3.5" />}
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
-
-            {modError && (
-              <p className="text-error text-xs mb-3 flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> {modError}
-              </p>
-            )}
-
-            {/* Moderator list */}
-            {moderators.length === 0 ? (
-              <p className="text-on-surface-variant text-sm text-center py-4">No additional moderators yet.</p>
-            ) : (
-              <ul className="space-y-2">
-                {moderators.map((m) => (
-                  <li key={m.id} className="flex items-center justify-between bg-surface-container-highest rounded-xl px-4 py-3">
-                    <div>
-                      <p className="text-sm font-semibold text-on-surface">{m.displayName}</p>
-                      <p className="text-xs text-on-surface-variant">{m.email}</p>
-                    </div>
-                    <button
-                      onClick={() => handleRemoveModerator(m.id)}
-                      className="text-error/70 hover:text-error transition-colors p-1"
-                      title="Remove moderator"
-                    >
-                      <UserMinus className="w-4 h-4" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
         </div>
       )}

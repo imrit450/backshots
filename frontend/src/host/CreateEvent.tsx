@@ -90,9 +90,18 @@ export default function CreateEvent() {
     if (iconInputRef.current) iconInputRef.current.value = '';
   };
 
-  // Derive safe defaults from the user's plan limits
-  const planMaxPhotos = effectivePlan.maxPhotosPerGuest === -1 ? 100 : effectivePlan.maxPhotosPerGuest;
-  const planMaxStorage = effectivePlan.maxStorageMb === -1 ? 500 : Math.min(500, effectivePlan.maxStorageMb);
+  // Derive stepper ceilings from the user's plan.
+  // -1 means "unlimited" on the plan; we represent it as a high UI ceiling.
+  const planMaxPhotos  = effectivePlan.maxPhotosPerGuest === -1 ? 999 : effectivePlan.maxPhotosPerGuest;
+  const planMaxStorage = effectivePlan.maxStorageMb      === -1 ? 102400 : effectivePlan.maxStorageMb;
+
+  // Human-readable plan limit shown next to each field
+  const photosLabel  = effectivePlan.maxPhotosPerGuest === -1 ? 'Unlimited' : `${planMaxPhotos} / plan`;
+  const storageLabel = effectivePlan.maxStorageMb === -1
+    ? 'Unlimited'
+    : planMaxStorage >= 1024
+      ? `${(planMaxStorage / 1024).toFixed(0)} GB / plan`
+      : `${planMaxStorage} MB / plan`;
 
   const [formInitialized, setFormInitialized] = useState(false);
   const [form, setForm] = useState({
@@ -115,8 +124,8 @@ export default function CreateEvent() {
     if (!formInitialized && host) {
       setFormInitialized(true);
       const p = getPlan(host.plan);
-      const maxPhotos = p.maxPhotosPerGuest === -1 ? 100 : p.maxPhotosPerGuest;
-      const maxStorage = p.maxStorageMb === -1 ? 500 : Math.min(500, p.maxStorageMb);
+      const maxPhotos  = p.maxPhotosPerGuest === -1 ? 999 : p.maxPhotosPerGuest;
+      const maxStorage = p.maxStorageMb      === -1 ? 102400 : p.maxStorageMb;
       setForm((prev) => ({
         ...prev,
         maxPhotosPerGuest: maxPhotos,
@@ -384,6 +393,7 @@ export default function CreateEvent() {
                   <p className="text-xs text-on-surface-variant pl-6">
                     Maximum uploads each guest can make.
                   </p>
+                  <p className="text-xs text-primary/70 pl-6 mt-0.5">{photosLabel}</p>
                 </div>
                 <StepperInput
                   value={form.maxPhotosPerGuest}
@@ -426,6 +436,7 @@ export default function CreateEvent() {
                   <p className="text-xs text-on-surface-variant pl-6">
                     Maximum disk space for this event.
                   </p>
+                  <p className="text-xs text-primary/70 pl-6 mt-0.5">{storageLabel}</p>
                 </div>
                 <StepperInput
                   value={form.maxStorageMb}

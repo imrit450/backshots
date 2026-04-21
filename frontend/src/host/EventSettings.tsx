@@ -27,6 +27,7 @@ export default function EventSettings() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [livestreamSaving, setLivestreamSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [iconUrl, setIconUrl] = useState<string | null>(null);
@@ -110,6 +111,23 @@ export default function EventSettings() {
       setError(err.message || 'Failed to remove icon');
     } finally {
       setIconUploading(false);
+    }
+  };
+
+  const handleLivestreamToggle = async () => {
+    if (!eventId || livestreamSaving) return;
+    const next = !form.livestreamEnabled;
+    setForm((f) => ({ ...f, livestreamEnabled: next }));
+    setLivestreamSaving(true);
+    try {
+      await api.updateEvent(eventId, { livestreamEnabled: next });
+      setSuccess(`Livestream ${next ? 'enabled' : 'disabled'}`);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err: any) {
+      setForm((f) => ({ ...f, livestreamEnabled: !next }));
+      setError(err.message || 'Failed to update livestream');
+    } finally {
+      setLivestreamSaving(false);
     }
   };
 
@@ -329,16 +347,23 @@ export default function EventSettings() {
                 type="button"
                 role="switch"
                 aria-checked={form.livestreamEnabled}
-                onClick={() => setForm({ ...form, livestreamEnabled: !form.livestreamEnabled })}
-                className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2 focus:ring-offset-surface-container-highest ${
+                onClick={handleLivestreamToggle}
+                disabled={livestreamSaving}
+                className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2 focus:ring-offset-surface-container-highest disabled:opacity-60 ${
                   form.livestreamEnabled ? 'bg-primary' : 'bg-outline-variant'
                 }`}
               >
-                <span
-                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
-                    form.livestreamEnabled ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
+                {livestreamSaving ? (
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <Loader className="w-3 h-3 text-white animate-spin" />
+                  </span>
+                ) : (
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
+                      form.livestreamEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                )}
               </button>
             </div>
 
