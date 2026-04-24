@@ -482,23 +482,29 @@ router.get('/:eventId/moderators', authenticateHost, asyncHandler(async (req: Re
   const event = await prisma.event.findFirst({ where });
   if (!event) throw new AppError('Event not found', 404);
 
-  const moderators = await (prisma as any).eventModerator.findMany({
+  const entries = await (prisma as any).eventModerator.findMany({
     where: { eventId: event.id },
     include: { host: { select: { id: true, email: true, displayName: true } } },
     orderBy: { createdAt: 'asc' },
   });
 
-  res.json({ moderators: moderators.map((m: any) => ({ id: m.host.id, email: m.host.email, displayName: m.host.displayName, addedAt: m.createdAt })) });
+  res.json({
+    moderators: entries.map((m: any) => ({
+      entryId: m.id,
+      id: m.host?.id ?? null,
+      email: m.host?.email ?? m.pendingEmail,
+      displayName: m.host?.displayName ?? null,
+      pending: !m.hostId,
+      addedAt: m.createdAt,
+    })),
+  });
 }));
 
 // POST /v1/events/:eventId/moderators - Add moderator by email (owner or admin only)
 router.post('/:eventId/moderators', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
   const { email } = z.object({ email: z.string().email() }).parse(req.body);
 
-  // Only the event owner or admin can add moderators
-  const event = await prisma.event.findFirst({
-    where: { id: req.params.eventId },
-  });
+  const event = await prisma.event.findFirst({ where: { id: req.params.eventId } });
   if (!event) throw new AppError('Event not found', 404);
 
   const caller = await prisma.host.findUnique({ where: { id: req.hostUser!.hostId }, select: { role: true } });
@@ -507,20 +513,28 @@ router.post('/:eventId/moderators', authenticateHost, asyncHandler(async (req: R
   }
 
   const target = await prisma.host.findUnique({ where: { email }, select: { id: true, email: true, displayName: true } });
-  if (!target) throw new AppError('No account found with that email', 404);
-  if (target.id === event.hostId) throw new AppError('The event owner is already a moderator', 400);
 
+  if (target) {
+    if (target.id === event.hostId) throw new AppError('The event owner is already a moderator', 400);
+    await (prisma as any).eventModerator.upsert({
+      where: { eventId_hostId: { eventId: event.id, hostId: target.id } },
+      create: { eventId: event.id, hostId: target.id },
+      update: {},
+    });
+    return res.status(201).json({ moderator: { id: target.id, email: target.email, displayName: target.displayName, pending: false } });
+  }
+
+  // No account yet — store as a pending invite by email
   await (prisma as any).eventModerator.upsert({
-    where: { eventId_hostId: { eventId: event.id, hostId: target.id } },
-    create: { eventId: event.id, hostId: target.id },
+    where: { eventId_pendingEmail: { eventId: event.id, pendingEmail: email } },
+    create: { eventId: event.id, pendingEmail: email },
     update: {},
   });
-
-  res.status(201).json({ moderator: { id: target.id, email: target.email, displayName: target.displayName } });
+  res.status(201).json({ moderator: { id: null, email, displayName: null, pending: true } });
 }));
 
-// DELETE /v1/events/:eventId/moderators/:hostId - Remove moderator (owner or admin only)
-router.delete('/:eventId/moderators/:hostId', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+// DELETE /v1/events/:eventId/moderators/:entryId - Remove moderator by EventModerator record id
+router.delete('/:eventId/moderators/:entryId', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
   const event = await prisma.event.findFirst({ where: { id: req.params.eventId } });
   if (!event) throw new AppError('Event not found', 404);
 
@@ -530,7 +544,7 @@ router.delete('/:eventId/moderators/:hostId', authenticateHost, asyncHandler(asy
   }
 
   await (prisma as any).eventModerator.deleteMany({
-    where: { eventId: event.id, hostId: req.params.hostId },
+    where: { id: req.params.entryId, eventId: event.id },
   });
 
   res.json({ success: true });

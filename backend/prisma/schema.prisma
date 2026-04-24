@@ -141,15 +141,17 @@ model Video {
 }
 
 model EventModerator {
-  id        String   @id @default(uuid())
-  eventId   String   @map("event_id")
-  hostId    String   @map("host_id")
-  createdAt DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid())
+  eventId      String   @map("event_id")
+  hostId       String?  @map("host_id")
+  pendingEmail String?  @map("pending_email")
+  createdAt    DateTime @default(now()) @map("created_at")
 
-  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  host  Host  @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  event Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  host  Host?  @relation(fields: [hostId], references: [id], onDelete: Cascade)
 
   @@unique([eventId, hostId])
+  @@unique([eventId, pendingEmail])
   @@map("event_moderators")
 }
 

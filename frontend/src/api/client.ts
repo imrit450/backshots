@@ -305,8 +305,8 @@ class ApiClient {
     });
   }
 
-  async removeEventModerator(eventId: string, hostId: string) {
-    return this.request<{ success: boolean }>(`/events/${eventId}/moderators/${hostId}`, {
+  async removeEventModerator(eventId: string, entryId: string) {
+    return this.request<{ success: boolean }>(`/events/${eventId}/moderators/${entryId}`, {
       method: 'DELETE',
     });
   }
