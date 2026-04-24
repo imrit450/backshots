@@ -114,28 +114,37 @@ router.post('/', authenticateHost, asyncHandler(async (req: Request, res: Respon
   res.status(201).json({ event: formatEvent(event) });
 }));
 
-// GET /v1/events - Host lists their events
+// GET /v1/events - Host lists their own events + events they moderate
 router.get('/', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
-  const events = await prisma.event.findMany({
-    where: { hostId: req.hostUser!.hostId },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      _count: {
-        select: {
-          photos: true,
-          guestSessions: true,
-        },
-      },
-    },
-  });
+  const hostId = req.hostUser!.hostId;
 
-  res.json({
-    events: events.map((e) => ({
-      ...formatEvent(e),
-      photoCount: e._count.photos,
-      guestCount: e._count.guestSessions,
-    })),
-  });
+  const include = {
+    _count: { select: { photos: true, guestSessions: true } },
+  };
+
+  const [ownedEvents, moderatorEntries] = await Promise.all([
+    prisma.event.findMany({ where: { hostId }, orderBy: { createdAt: 'desc' }, include }),
+    (prisma as any).eventModerator.findMany({
+      where: { hostId },
+      include: { event: { include } },
+    }),
+  ]);
+
+  const ownedFormatted = ownedEvents.map((e: any) => ({
+    ...formatEvent(e),
+    photoCount: e._count.photos,
+    guestCount: e._count.guestSessions,
+    role: 'host',
+  }));
+
+  const moderatedFormatted = moderatorEntries.map((m: any) => ({
+    ...formatEvent(m.event),
+    photoCount: m.event._count.photos,
+    guestCount: m.event._count.guestSessions,
+    role: 'moderator',
+  }));
+
+  res.json({ events: [...ownedFormatted, ...moderatedFormatted] });
 }));
 
 // GET /v1/events/:eventId - Host gets event details (owner or admin)
