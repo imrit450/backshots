@@ -21,8 +21,8 @@ export default function Dashboard() {
   }, [authLoading]);
 
   const plan = getPlan(host?.plan || 'free');
-  const activeEvents = events.filter((e) => e.status === 'active');
-  const totalPhotos = events.reduce((sum: number, e: any) => sum + (e._count?.photos ?? 0), 0);
+  const activeEvents = events.filter((e) => e.isActive);
+  const totalPhotos = events.reduce((sum: number, e: any) => sum + (e.photoCount ?? 0), 0);
   const recentEvents = [...events].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   ).slice(0, 5);
@@ -124,11 +124,11 @@ export default function Dashboard() {
                     className="flex items-center justify-between px-5 py-3.5 hover:bg-surface-container-high transition-colors group"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${event.status === 'active' ? 'bg-secondary' : 'bg-outline'}`} />
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${event.isActive ? 'bg-secondary' : 'bg-outline'}`} />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-on-surface truncate">{event.name}</p>
+                        <p className="text-sm font-medium text-on-surface truncate">{event.title}</p>
                         <p className="text-xs text-on-surface-variant">
-                          {event._count?.photos ?? 0} photos · {new Date(event.createdAt).toLocaleDateString()}
+                          {event.photoCount ?? 0} photos · {new Date(event.createdAt).toLocaleDateString()}
                         </p>
                       </div>
                     </div>
