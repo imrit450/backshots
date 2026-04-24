@@ -79,7 +79,7 @@ export default function App() {
 
   return (
     <>
-    {isGuestRoute && <InstallPrompt />}
+    {/* InstallPrompt disabled until app store listings are live */}
     <Routes>
       {/* Host routes */}
       <Route path="/host/login" element={<Login />} />

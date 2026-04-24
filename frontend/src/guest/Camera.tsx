@@ -462,10 +462,7 @@ export default function GuestCamera() {
         setShowSuccessToast(true);
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         toastTimerRef.current = setTimeout(() => setShowSuccessToast(false), 3000);
-        // Show install prompt on first upload from mobile web
-        if (IS_MOBILE_WEB && !localStorage.getItem('installPromptDismissed')) {
-          setTimeout(() => setShowInstallPrompt(true), 1500);
-        }
+        // Install prompt disabled until app store listings are live
       }
     } catch (err: any) {
       setError(err.message || 'Upload failed');
@@ -887,17 +884,6 @@ export default function GuestCamera() {
                 <button onClick={() => navigate(`/e/${eventCode}/gallery`)} className="w-full py-4 bg-surface-container-low text-on-surface-variant font-headline font-bold rounded-xl flex items-center justify-center gap-2 border border-outline-variant/20 active:scale-95 transition-all">
                   <Images className="w-5 h-5" /> View Event Gallery
                 </button>
-              )}
-              {/* Install prompt in success screen for video uploads on mobile web */}
-              {IS_MOBILE_WEB && !localStorage.getItem('installPromptDismissed') && (
-                <a
-                  href={/iPhone|iPad/i.test(navigator.userAgent) ? APP_STORE_URL : PLAY_STORE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 bg-surface-container-highest/60 border border-primary/20 text-primary font-headline font-bold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition-all text-sm"
-                >
-                  <Download className="w-4 h-4" /> Get the App for Better Quality
-                </a>
               )}
             </div>
             <LogoIcon size={14} className="mx-auto mt-6 opacity-30" />
