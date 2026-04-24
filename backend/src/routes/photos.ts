@@ -107,9 +107,10 @@ router.post(
 
     // Process image + run quality analysis in parallel
     const photoPrefix = `hosts/${event.hostId}/events/${event.id}`;
+    const rawBuffer = req.file.buffer;
     const inputBuffer = event.enhancementEnabled
-      ? await enhancePhoto(req.file.buffer).catch(() => req.file.buffer)
-      : req.file.buffer;
+      ? await enhancePhoto(rawBuffer).catch(() => rawBuffer)
+      : rawBuffer;
     const [processed, analysis] = await Promise.all([
       processImage(inputBuffer, req.file.originalname, photoPrefix),
       analyzeImage(inputBuffer).catch(() => null), // never block upload on analysis failure
