@@ -24,6 +24,8 @@ import {
   Eye,
   Share2,
   MapPin,
+  X,
+  Phone,
 } from 'lucide-react';
 
 // ── Share card generator ────────────────────────────────────────────
@@ -234,6 +236,9 @@ export default function EventDashboard() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [generatingCard, setGeneratingCard] = useState(false);
+  const [showGuests, setShowGuests] = useState(false);
+  const [guests, setGuests] = useState<any[]>([]);
+  const [guestsLoading, setGuestsLoading] = useState(false);
   const lastPhotoCount = useRef<number | null>(null);
 
   // Initial load
@@ -517,17 +522,85 @@ export default function EventDashboard() {
         </div>
 
         {/* Total Guests */}
-        <div className="bg-surface-container-low rounded-xl p-6">
+        <button
+          onClick={async () => {
+            setShowGuests(true);
+            if (guests.length === 0) {
+              setGuestsLoading(true);
+              try {
+                const data = await api.getEventGuests(eventId!);
+                setGuests(data.guests);
+              } catch { /* ignore */ }
+              finally { setGuestsLoading(false); }
+            }
+          }}
+          className="bg-surface-container-low rounded-xl p-6 text-left hover:bg-surface-container transition-colors group w-full"
+        >
           <div className="flex items-center justify-between mb-3">
             <div className="p-2 rounded-lg bg-secondary/10">
               <Users className="w-4 h-4 text-secondary" />
             </div>
+            <span className="text-xs text-secondary opacity-0 group-hover:opacity-100 transition-opacity font-medium">View all →</span>
           </div>
           <div className="text-5xl font-headline font-black text-on-surface leading-none mb-1">
             {stats?.guestCount || 0}
           </div>
           <div className="text-xs text-on-surface-variant">Total Guests</div>
-        </div>
+        </button>
+
+        {/* Guest list panel */}
+        {showGuests && (
+          <div className="fixed inset-0 z-50 flex justify-end">
+            <div className="absolute inset-0 bg-black/50" onClick={() => setShowGuests(false)} />
+            <div className="relative w-full max-w-md bg-surface h-full flex flex-col shadow-2xl">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant/20">
+                <div>
+                  <h2 className="font-headline font-bold text-on-surface">Guests</h2>
+                  <p className="text-xs text-on-surface-variant mt-0.5">{guests.length} joined</p>
+                </div>
+                <button onClick={() => setShowGuests(false)} className="p-2 rounded-lg hover:bg-surface-container transition-colors">
+                  <X className="w-4 h-4 text-on-surface-variant" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                {guestsLoading ? (
+                  <div className="flex justify-center py-16">
+                    <div className="w-6 h-6 rounded-full border-2 border-secondary border-t-transparent animate-spin" />
+                  </div>
+                ) : guests.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 text-on-surface-variant">
+                    <Users className="w-10 h-10 mb-3 opacity-30" />
+                    <p className="text-sm">No guests yet</p>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-outline-variant/20">
+                    {guests.map((g) => (
+                      <li key={g.id} className="flex items-center gap-4 px-6 py-4">
+                        <div className="w-9 h-9 rounded-full bg-secondary/15 text-secondary flex items-center justify-center text-sm font-bold flex-shrink-0">
+                          {g.displayName?.[0]?.toUpperCase() ?? '?'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-on-surface truncate">{g.displayName || 'Anonymous'}</p>
+                          {g.phoneNumber ? (
+                            <a href={`tel:${g.phoneNumber}`} className="flex items-center gap-1 text-xs text-secondary hover:underline mt-0.5">
+                              <Phone className="w-3 h-3" />{g.phoneNumber}
+                            </a>
+                          ) : (
+                            <p className="text-xs text-on-surface-variant/50 mt-0.5">No phone</p>
+                          )}
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm font-bold text-on-surface">{g.photoCount}</p>
+                          <p className="text-xs text-on-surface-variant">photos</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Queue */}
         <div className="bg-surface-container-low rounded-xl p-6">

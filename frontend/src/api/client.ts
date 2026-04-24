@@ -179,6 +179,10 @@ class ApiClient {
     return this.request<{ event: any }>(`/events/${eventId}`);
   }
 
+  async getEventGuests(eventId: string) {
+    return this.request<{ guests: any[] }>(`/events/${eventId}/guests`);
+  }
+
   async updateEvent(eventId: string, data: any) {
     return this.request<{ event: any }>(`/events/${eventId}`, {
       method: 'PATCH',

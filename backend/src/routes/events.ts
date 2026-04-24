@@ -336,6 +336,29 @@ router.delete(
   })
 );
 
+// GET /v1/events/:eventId/guests - List guests for an event (owner, moderator, or admin)
+router.get('/:eventId/guests', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+  const event = await prisma.event.findFirst({ where });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const sessions = await prisma.guestSession.findMany({
+    where: { eventId: event.id },
+    orderBy: { createdAt: 'asc' },
+    include: { _count: { select: { photos: true } } },
+  });
+
+  res.json({
+    guests: sessions.map((s) => ({
+      id: s.id,
+      displayName: s.displayName,
+      phoneNumber: s.phoneNumber ?? null,
+      photoCount: s._count.photos,
+      joinedAt: s.createdAt,
+    })),
+  });
+}));
+
 // GET /v1/events/:eventId/qr - Get QR code for event (owner or admin)
 router.get('/:eventId/qr', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
   const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
