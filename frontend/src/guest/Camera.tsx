@@ -29,6 +29,19 @@ import {
 
 const IS_NATIVE = Capacitor.isNativePlatform();
 const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+async function saveToDevice(blob: Blob, filename: string) {
+  const file = new File([blob], filename, { type: blob.type });
+  // iOS 15+: Web Share API can route to "Save to Photos"
+  if (IS_IOS && navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: filename }); return; } catch { /* cancelled */ }
+  }
+  // Android / desktop: trigger a download
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 // Show install prompt only on mobile web (not already in the native app)
 const IS_MOBILE_WEB = !IS_NATIVE && /iPhone|iPad|Android/i.test(navigator.userAgent);
 
@@ -849,6 +862,14 @@ export default function GuestCamera() {
             <div className="flex gap-3">
               <button onClick={handleRetake} disabled={uploading} className="flex-1 py-4 bg-surface-container-highest rounded-xl text-on-surface font-headline font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-all">
                 <RotateCcw className="w-4 h-4" /> Retake
+              </button>
+              <button
+                onClick={() => capturedBlob && saveToDevice(capturedBlob, `photo-${Date.now()}.jpg`)}
+                disabled={!capturedBlob || uploading}
+                title="Save to device"
+                className="py-4 px-5 bg-surface-container-highest rounded-xl text-on-surface flex items-center justify-center disabled:opacity-50 active:scale-95 transition-all"
+              >
+                <Download className="w-5 h-5" />
               </button>
               <button onClick={handleSubmit} disabled={uploading || uploadsClosed} className="flex-1 py-4 kinetic-gradient shutter-glow rounded-xl text-white font-headline font-bold flex items-center justify-center gap-2 disabled:opacity-50 active:scale-95 transition-all">
                 {uploading ? <><Loader className="w-4 h-4 animate-spin" /> Uploading...</> : <><Check className="w-4 h-4" /> Upload</>}
