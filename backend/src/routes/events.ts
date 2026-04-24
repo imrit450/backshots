@@ -31,6 +31,7 @@ const createEventSchema = z.object({
   moderationMode: z.enum(['AUTO', 'APPROVE_FIRST']).default('AUTO'),
   theme: z.string().max(30).default('classic'),
   livestreamEnabled: z.boolean().default(true),
+  enhancementEnabled: z.boolean().default(false),
 });
 
 const updateEventSchema = z.object({
@@ -50,6 +51,7 @@ const updateEventSchema = z.object({
   theme: z.string().max(30).optional(),
   isActive: z.boolean().optional(),
   livestreamEnabled: z.boolean().optional(),
+  enhancementEnabled: z.boolean().optional(),
 });
 
 // POST /v1/events - Host creates event (requires canCreateEvents or admin role)
@@ -595,6 +597,7 @@ function formatEvent(event: any) {
     eventCode: event.eventCode,
     isActive: event.isActive,
     livestreamEnabled: event.livestreamEnabled,
+    enhancementEnabled: event.enhancementEnabled ?? false,
     createdAt: event.createdAt.toISOString(),
     updatedAt: event.updatedAt.toISOString(),
   };

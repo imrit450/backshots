@@ -7,6 +7,7 @@ import { uploadLimiter } from '../middleware/rateLimit';
 import { AppError } from '../middleware/errorHandler';
 import { processImage, deletePhotoFiles } from '../services/media';
 import { analyzeImage } from '../services/imageAnalysis';
+import { enhancePhoto } from '../services/enhancer';
 import { computeRevealAt, eventWhereForHost } from '../utils/helpers';
 import { config } from '../config';
 
@@ -106,9 +107,12 @@ router.post(
 
     // Process image + run quality analysis in parallel
     const photoPrefix = `hosts/${event.hostId}/events/${event.id}`;
+    const inputBuffer = event.enhancementEnabled
+      ? await enhancePhoto(req.file.buffer).catch(() => req.file.buffer)
+      : req.file.buffer;
     const [processed, analysis] = await Promise.all([
-      processImage(req.file.buffer, req.file.originalname, photoPrefix),
-      analyzeImage(req.file.buffer).catch(() => null), // never block upload on analysis failure
+      processImage(inputBuffer, req.file.originalname, photoPrefix),
+      analyzeImage(inputBuffer).catch(() => null), // never block upload on analysis failure
     ]);
 
     const now = new Date();

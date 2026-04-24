@@ -19,6 +19,7 @@ import {
   HardDrive,
   Users,
   Power,
+  Wand2,
 } from 'lucide-react';
 import { THEME_LIST } from '../config/themes';
 
@@ -50,6 +51,7 @@ export default function EventSettings() {
     theme: 'classic',
     isActive: true,
     livestreamEnabled: true,
+    enhancementEnabled: false,
   });
 
   useEffect(() => {
@@ -75,6 +77,7 @@ export default function EventSettings() {
           theme: data.event.theme || 'classic',
           isActive: data.event.isActive,
           livestreamEnabled: data.event.livestreamEnabled ?? true,
+          enhancementEnabled: data.event.enhancementEnabled ?? false,
         });
         setIconUrl(data.event.iconUrl || null);
       })
@@ -583,6 +586,34 @@ export default function EventSettings() {
                 <span
                   className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
                     form.guestGalleryEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Enhancement toggle */}
+            <div className="flex items-center justify-between bg-surface-container-highest rounded-xl px-5 py-4 border border-outline-variant/30">
+              <div className="flex items-start gap-3">
+                <Wand2 className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-on-surface">Photo &amp; Video Enhancement</p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">
+                    Automatically improve lighting, sharpness, and colour for uploads
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.enhancementEnabled}
+                onClick={() => setForm({ ...form, enhancementEnabled: !form.enhancementEnabled })}
+                className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:ring-offset-2 focus:ring-offset-surface-container-highest ${
+                  form.enhancementEnabled ? 'bg-primary' : 'bg-outline-variant'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transform transition-transform duration-200 ${
+                    form.enhancementEnabled ? 'translate-x-5' : 'translate-x-0'
                   }`}
                 />
               </button>

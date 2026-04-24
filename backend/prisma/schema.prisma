@@ -46,6 +46,7 @@ model Event {
   eventCode           String         @unique @map("event_code")
   isActive            Boolean        @default(true) @map("is_active")
   livestreamEnabled   Boolean        @default(true) @map("livestream_enabled")
+  enhancementEnabled  Boolean        @default(false) @map("enhancement_enabled")
   createdAt           DateTime       @default(now()) @map("created_at")
   updatedAt           DateTime       @updatedAt @map("updated_at")
 

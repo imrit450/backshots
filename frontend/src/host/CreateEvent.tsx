@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../api/client';
-import { ImagePlus, X, Check, Minus, Plus } from 'lucide-react';
+import { ImagePlus, X, Check, Minus, Plus, Wand2 } from 'lucide-react';
 import { THEME_LIST } from '../config/themes';
 import { getPlan } from '../config/plans';
 
@@ -117,6 +117,7 @@ export default function CreateEvent() {
     guestGalleryEnabled: true,
     moderationMode: 'AUTO' as 'AUTO' | 'APPROVE_FIRST',
     theme: 'classic',
+    enhancementEnabled: false,
   });
 
   // Re-sync defaults once the real host plan loads (replaces optimistic 'free' defaults)
@@ -528,6 +529,34 @@ export default function CreateEvent() {
                   <span
                     className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
                       form.guestGalleryEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Enhancement toggle */}
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Wand2 className="w-4 h-4 text-primary flex-shrink-0" />
+                    <span className="text-sm font-semibold text-on-surface">Photo &amp; Video Enhancement</span>
+                  </div>
+                  <p className="text-xs text-on-surface-variant pl-6">
+                    Automatically improve lighting, sharpness, and colour for uploads.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.enhancementEnabled}
+                  onClick={() => setForm({ ...form, enhancementEnabled: !form.enhancementEnabled })}
+                  className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
+                    form.enhancementEnabled ? 'bg-primary' : 'bg-surface-container-highest'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                      form.enhancementEnabled ? 'translate-x-5' : 'translate-x-0'
                     }`}
                   />
                 </button>

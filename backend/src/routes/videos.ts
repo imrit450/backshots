@@ -9,6 +9,7 @@ import { computeRevealAt, eventWhereForHost } from '../utils/helpers';
 import { config } from '../config';
 import { getStorage } from '../services/storage';
 import { transcodeVideo } from '../services/videoProcessor';
+import { enhanceVideo } from '../services/enhancer';
 
 const router = Router();
 
@@ -137,7 +138,10 @@ router.post(
     const rawMime   = req.file.mimetype;
     setImmediate(async () => {
       try {
-        const mp4Buffer = await transcodeVideo(rawBuffer, rawMime);
+        const bufferToProcess = event.enhancementEnabled
+          ? await enhanceVideo(rawBuffer, rawMime).catch(() => rawBuffer)
+          : rawBuffer;
+        const mp4Buffer = await transcodeVideo(bufferToProcess, rawMime);
         if (!mp4Buffer) return;
         const mp4Key = `${videoPrefix}/videos/${sessionId}-${ts}.mp4`;
         const mp4Url = await storage.upload(mp4Buffer, mp4Key, 'video/mp4');
