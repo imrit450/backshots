@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useCamera } from '../hooks/useCamera';
 import { api } from '../api/client';
 import { Capacitor } from '@capacitor/core';
+import { useDynamicManifest } from '../hooks/useDynamicManifest';
 import {
   Camera,
   SwitchCamera,
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react';
 
 const IS_NATIVE = Capacitor.isNativePlatform();
+const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 // Show install prompt only on mobile web (not already in the native app)
 const IS_MOBILE_WEB = !IS_NATIVE && /iPhone|iPad|Android/i.test(navigator.userAgent);
 
@@ -54,12 +56,17 @@ type TimerValue = 0 | 3 | 5 | 10;
 const TIMER_CYCLE: TimerValue[] = [0, 3, 5, 10];
 
 function getBestMimeType(): string {
-  const types = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-    'video/mp4',
-  ];
+  // WebM + VP8 + Opus is intentionally preferred over VP9 on both Android and iOS.
+  //
+  // WHY NOT VP9 on Android: Android Chrome MediaRecorder's VP9+Opus WebM output has
+  // a well-known bug where Opus granule positions / preskip values are written
+  // incorrectly. The browser's own <video> element plays this back as robotic /
+  // pitch-shifted audio. FFmpeg corrects it during the server-side transcode, so
+  // uploaded clips sound fine — but the local preview sounds terrible.
+  // VP8+Opus does not have this bug and plays back cleanly in-browser.
+  //
+  // iOS Safari only supports VP8 anyway.
+  const types = ['video/webm;codecs=vp8,opus', 'video/webm'];
   for (const t of types) {
     if (MediaRecorder.isTypeSupported(t)) return t;
   }
@@ -70,6 +77,7 @@ export default function GuestCamera() {
   const { eventCode } = useParams<{ eventCode: string }>();
   const navigate = useNavigate();
   const camera = useCamera();
+  useDynamicManifest(`/e/${eventCode}`);
 
   const [screen, setScreen] = useState<ScreenState>('camera');
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null);
@@ -113,10 +121,9 @@ export default function GuestCamera() {
   const [brightness, setBrightness] = useState(100);
   const [showBrightnessSlider, setShowBrightnessSlider] = useState(false);
 
-  // CSS zoom (web fallback)
-  const [cssZoom, setCssZoom] = useState(1);
   const pinchRef = useRef<{ startDist: number; startZoom: number } | null>(null);
   const zoomLevelRef = useRef(1);
+  const hwZoomThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Title & description
   const [photoTitle, setPhotoTitle] = useState('');
@@ -169,9 +176,10 @@ export default function GuestCamera() {
     return () => clearInterval(interval);
   }, [event.id, refreshPhotoStatuses]);
 
-  // Prevent WkWebView from intercepting pinch gestures and zooming the page UI
+  // Prevent the browser/WkWebView from intercepting pinch gestures and zooming the page UI.
+  // Applies on both native (WkWebView) and iOS Safari PWA — meta viewport user-scalable=no
+  // is ignored by iOS 10+ for accessibility reasons, so we must preventDefault in JS.
   useEffect(() => {
-    if (!IS_NATIVE) return;
     const handler = (e: TouchEvent) => {
       if (e.touches.length > 1) e.preventDefault();
     };
@@ -190,20 +198,33 @@ export default function GuestCamera() {
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (IS_NATIVE) return;
-    if (e.touches.length === 2 && pinchRef.current) {
-      const dist = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
-      const scale = dist / pinchRef.current.startDist;
-      const newZoom = Math.max(1, Math.min(5, pinchRef.current.startZoom * scale));
-      zoomLevelRef.current = newZoom;
-      if (camera.zoomCaps) {
-        camera.applyZoom(newZoom);
-      } else {
-        setCssZoom(newZoom);
+    if (e.touches.length !== 2 || !pinchRef.current) return;
+    const dist = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+    const newZoom = Math.max(1, Math.min(5, pinchRef.current.startZoom * (dist / pinchRef.current.startDist)));
+    zoomLevelRef.current = newZoom;
+
+    if (camera.zoomCaps) {
+      // Throttle hardware zoom to avoid flooding the track constraints API
+      if (!hwZoomThrottleRef.current) {
+        hwZoomThrottleRef.current = setTimeout(() => {
+          camera.applyZoom(zoomLevelRef.current);
+          hwZoomThrottleRef.current = null;
+        }, 100);
+      }
+    } else {
+      // Apply CSS transform directly to DOM — no React re-render
+      const video = camera.videoRef.current;
+      if (video) {
+        const mirror = camera.facingMode === 'user' ? -1 : 1;
+        video.style.transform = `scaleX(${mirror}) scale(${newZoom})`;
       }
     }
   }, [camera]);
 
-  const handleTouchEnd = useCallback(() => { pinchRef.current = null; }, []);
+  const handleTouchEnd = useCallback(() => {
+    pinchRef.current = null;
+    if (hwZoomThrottleRef.current) { clearTimeout(hwZoomThrottleRef.current); hwZoomThrottleRef.current = null; }
+  }, []);
 
   // ── Stop web video recording ───────────────────────────────────────────
   const stopWebVideoRecording = useCallback(() => {
@@ -276,17 +297,22 @@ export default function GuestCamera() {
       }
 
       // ── Web MediaRecorder path ──
+      // Single recorder — dual recorders on the same stream cause audio codec
+      // interference (robotic/distorted sound). Android hardware encodes VP9 at
+      // high bitrates without lag; iOS uses VP8 (software) so we keep it lower.
       try {
-        const stream = camera.videoRef.current?.srcObject as MediaStream | null;
-        if (!stream) throw new Error('Camera not ready');
+        const rawStream = camera.videoRef.current?.srcObject as MediaStream | null;
+        if (!rawStream) throw new Error('Camera not ready');
 
         recordedChunksRef.current = [];
         const mimeType = getBestMimeType();
         recordingMimeRef.current = mimeType;
-        const mr = new MediaRecorder(stream, {
+        const mr = new MediaRecorder(rawStream, {
           ...(mimeType ? { mimeType } : {}),
-          videoBitsPerSecond: 2_500_000,
-          audioBitsPerSecond: 128_000,
+          // iOS: VP8 is software-encoded — keep bitrate moderate to avoid lag
+          // Android: VP9/VP8 hardware-encoded — crank it up for quality
+          videoBitsPerSecond: IS_IOS ? 2_000_000 : 8_000_000,
+          audioBitsPerSecond: IS_IOS ? 128_000 : 256_000,
         });
         mediaRecorderRef.current = mr;
 
@@ -304,7 +330,8 @@ export default function GuestCamera() {
         mr.onstop = () => {
           if (recordingIntervalRef.current) { clearInterval(recordingIntervalRef.current); recordingIntervalRef.current = null; }
           if (flashEnabled && camera.torchSupported) camera.setTorch(false);
-          const fileType = recordingMimeRef.current.includes('mp4') ? 'video/mp4' : 'video/webm';
+          // Strip codec suffix so Blob type is clean "video/webm" (multer check)
+          const fileType = recordingMimeRef.current.startsWith('video/mp4') ? 'video/mp4' : 'video/webm';
           const blob = new Blob(recordedChunksRef.current, { type: fileType });
           setCapturedBlob(blob);
           setVideoPreviewUrl(URL.createObjectURL(blob));
@@ -314,7 +341,12 @@ export default function GuestCamera() {
           setRecordingElapsed(0);
         };
 
-        mr.start(100);
+        // No timeslice — all audio/video data is buffered and delivered as one
+        // clean blob on stop(). Fragmented 100 ms chunks cause audio artefacts
+        // in the preview player (choppy / distorted); FFmpeg handles them fine
+        // server-side but the in-browser preview sounds bad. The 10 s auto-stop
+        // still works because we call mr.stop() explicitly in the interval.
+        mr.start();
 
         recordingIntervalRef.current = setInterval(() => {
           recordingElapsedRef.current += 1;
@@ -347,7 +379,7 @@ export default function GuestCamera() {
       }
     }
 
-    const blob = await camera.capturePhoto(cssZoom);
+    const blob = await camera.capturePhoto(zoomLevelRef.current);
 
     setTimeout(() => setScreenFlash(false), 200);
     if (flashEnabled && camera.torchSupported) setTimeout(() => camera.setTorch(false), 100);
@@ -359,7 +391,7 @@ export default function GuestCamera() {
       setPhotoDescription('');
       setScreen('preview');
     }
-  }, [camera, flashEnabled, mode, recording, stopWebVideoRecording, stopNativeVideoRecording, cssZoom]);
+  }, [camera, flashEnabled, mode, recording, stopWebVideoRecording, stopNativeVideoRecording]);
 
   const handleCapture = useCallback(async () => {
     if (mode === 'video' && recording) {
@@ -399,8 +431,8 @@ export default function GuestCamera() {
     setError('');
     setPhotoTitle('');
     setPhotoDescription('');
-    setCssZoom(1);
     zoomLevelRef.current = 1;
+    if (camera.videoRef.current) camera.videoRef.current.style.transform = `scaleX(${camera.facingMode === 'user' ? -1 : 1})`;
     setScreen('camera');
     camera.startCamera();
   }, [capturedUrl, videoPreviewUrl, camera]);
@@ -517,7 +549,7 @@ export default function GuestCamera() {
             muted
             className={`w-full h-full object-cover ${camera.error ? 'hidden' : ''}`}
             style={{
-              transform: `scaleX(${camera.facingMode === 'user' ? -1 : 1}) scale(${cssZoom})`,
+              transform: `scaleX(${camera.facingMode === 'user' ? -1 : 1})`,
               filter: `brightness(${brightness}%)`,
               transformOrigin: 'center center',
             }}
@@ -648,10 +680,10 @@ export default function GuestCamera() {
           </button>
 
           {/* Zoom indicator (web only) */}
-          {!IS_NATIVE && (cssZoom > 1.05 || camera.currentZoom > 1.05) && (
+          {!IS_NATIVE && (zoomLevelRef.current > 1.05 || camera.currentZoom > 1.05) && (
             <div className="w-10 h-10 rounded-full bg-black/40 backdrop-blur-md border border-outline-variant/20 flex items-center justify-center">
               <span className="text-white/80 text-[10px] font-bold leading-none">
-                {(camera.currentZoom > 1.05 ? camera.currentZoom : cssZoom).toFixed(1)}×
+                {(camera.currentZoom > 1.05 ? camera.currentZoom : zoomLevelRef.current).toFixed(1)}×
               </span>
             </div>
           )}
@@ -730,7 +762,7 @@ export default function GuestCamera() {
           <div className="flex justify-around items-center px-8 pb-12 pt-4">
             {/* Switch camera */}
             <button
-              onClick={() => { setCssZoom(1); zoomLevelRef.current = 1; camera.switchCamera(); }}
+              onClick={() => { zoomLevelRef.current = 1; camera.switchCamera(); }}
               disabled={recording}
               className="w-14 h-14 rounded-full bg-surface-container-highest/40 backdrop-blur-xl border border-outline-variant/20 flex items-center justify-center disabled:opacity-40"
             >

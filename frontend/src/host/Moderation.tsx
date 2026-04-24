@@ -81,6 +81,7 @@ export default function Moderation() {
   // ── Lightbox state ──────────────────────────────────────────────────────
   const [lightboxPhoto, setLightboxPhoto] = useState<any | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number>(0);
+  const [selectedVideo, setSelectedVideo] = useState<any | null>(null);
 
   // ── Live feed hover ─────────────────────────────────────────────────────
   const [liveFeedHover, setLiveFeedHover] = useState(false);
@@ -656,7 +657,7 @@ export default function Moderation() {
                   className={`bg-surface-container-low rounded-xl overflow-hidden transition-all duration-200 hover:ring-1 hover:ring-primary/30 cursor-pointer ${
                     isActing ? 'opacity-60 pointer-events-none' : ''
                   } ${isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''}`}
-                  onClick={selectMode && !isVideo ? () => toggleSelect(item.id) : undefined}
+                  onClick={isVideo ? () => setSelectedVideo(item) : selectMode ? () => toggleSelect(item.id) : undefined}
                 >
                   {/* ── Media area ──────────────────────────────── */}
                   <div className="aspect-square bg-surface-container-highest relative overflow-hidden group">
@@ -868,6 +869,77 @@ export default function Moderation() {
       </button>
 
       {/* ── Lightbox ─────────────────────────────────────────────── */}
+      {/* ── Video lightbox ───────────────────────────────────────── */}
+      {selectedVideo && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 flex flex-col"
+          onClick={() => setSelectedVideo(null)}
+        >
+          <div
+            className="flex-shrink-0 flex items-center justify-between px-6 py-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-white font-headline font-bold text-sm">
+              {selectedVideo.guestName || 'Anonymous'} · {selectedVideo.durationSec}s
+            </p>
+            <button
+              onClick={() => setSelectedVideo(null)}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div
+            className="flex-1 flex items-center justify-center min-h-0 px-4 pb-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <video
+              src={selectedVideo.url}
+              controls
+              autoPlay
+              playsInline
+              className="max-w-full max-h-full rounded-xl"
+              style={{ maxHeight: '75vh' }}
+            />
+          </div>
+          <div
+            className="flex-shrink-0 px-6 py-4 flex items-center justify-center gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {selectedVideo.status === 'PENDING' && (
+              <>
+                <button
+                  onClick={() => { handleAction(selectedVideo.id, 'approve'); setSelectedVideo((v: any) => v ? { ...v, status: 'APPROVED' } : null); }}
+                  className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-primary-dim text-white text-sm font-bold"
+                >
+                  <CheckCircle className="w-4 h-4" /> Approve
+                </button>
+                <button
+                  onClick={() => { handleAction(selectedVideo.id, 'reject'); setSelectedVideo((v: any) => v ? { ...v, status: 'REJECTED' } : null); }}
+                  className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-error/20 text-error text-sm font-bold"
+                >
+                  <XCircle className="w-4 h-4" /> Reject
+                </button>
+              </>
+            )}
+            {selectedVideo.status === 'REJECTED' && (
+              <button
+                onClick={() => { handleAction(selectedVideo.id, 'approve'); setSelectedVideo((v: any) => v ? { ...v, status: 'APPROVED' } : null); }}
+                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-primary/15 text-primary text-sm font-bold"
+              >
+                <CheckCircle className="w-4 h-4" /> Restore
+              </button>
+            )}
+            <button
+              onClick={() => { handleSingleDelete(selectedVideo.id, true); setSelectedVideo(null); }}
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-error/20 text-error text-sm font-bold"
+            >
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          </div>
+        </div>
+      )}
+
       {lightboxPhoto && (
         <div
           className="fixed inset-0 z-50 bg-black/95 flex flex-col"

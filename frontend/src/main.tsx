@@ -6,6 +6,12 @@ import { ToastProvider } from './components/Toast';
 import App from './App';
 import './index.css';
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+
 // The publishable key is optional — Clerk runs in keyless mode when omitted,
 // generating temporary keys automatically so you can start without an account.
 const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;

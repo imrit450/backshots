@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { api } from '../api/client';
-import { Download, EyeOff, Eye, Images, Loader2, Play } from 'lucide-react';
+import { Download, EyeOff, Eye, Images, Loader2, Play, X } from 'lucide-react';
 
 type MediaItem =
   | ({ _type: 'photo' } & Record<string, any>)
@@ -15,6 +15,7 @@ export default function HostGallery() {
   const [loading, setLoading] = useState(true);
   const [showHidden, setShowHidden] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'photos' | 'videos'>('all');
+  const [selectedVideo, setSelectedVideo] = useState<any | null>(null);
 
   useEffect(() => {
     if (!eventId) return;
@@ -138,7 +139,7 @@ export default function HostGallery() {
                   {isVideo ? (
                     <video
                       src={item.url}
-                      className={`absolute inset-0 w-full h-full object-cover ${
+                      className={`absolute inset-0 w-full h-full object-cover cursor-pointer ${
                         item.hidden ? 'grayscale opacity-60' : ''
                       }`}
                       muted
@@ -150,6 +151,7 @@ export default function HostGallery() {
                         v.pause();
                         v.currentTime = 0;
                       }}
+                      onClick={(e) => { e.stopPropagation(); setSelectedVideo(item); }}
                     />
                   ) : (
                     <img
@@ -218,6 +220,40 @@ export default function HostGallery() {
               </div>
             );
           })}
+        </div>
+      )}
+      {selectedVideo && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 flex flex-col"
+          onClick={() => setSelectedVideo(null)}
+        >
+          <div
+            className="flex-shrink-0 flex items-center justify-between px-6 py-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-white font-headline font-bold text-sm">
+              {selectedVideo.guestName || 'Anonymous'} · {selectedVideo.durationSec}s
+            </p>
+            <button
+              onClick={() => setSelectedVideo(null)}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div
+            className="flex-1 flex items-center justify-center min-h-0 px-4 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <video
+              src={selectedVideo.url}
+              controls
+              autoPlay
+              playsInline
+              className="max-w-full max-h-full rounded-xl"
+              style={{ maxHeight: '80vh' }}
+            />
+          </div>
         </div>
       )}
     </Layout>

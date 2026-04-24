@@ -4,6 +4,7 @@ import { CameraPreview } from '@capacitor-community/camera-preview';
 
 // Evaluated once at module load — never changes at runtime so safe to branch hooks.
 const IS_NATIVE = Capacitor.isNativePlatform();
+const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 interface ZoomCaps {
   min: number;
@@ -217,23 +218,27 @@ export function useCamera(): UseCameraReturn {
 
       const videoConstraints: MediaTrackConstraints = {
         facingMode,
-        aspectRatio: { ideal: 3 / 4 },
-        width: { ideal: 1080 },
-        height: { ideal: 1440 },
+        width:  { ideal: 1920 },
+        height: { ideal: 1920 },
       };
-      const audioConstraints: MediaTrackConstraints = {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        sampleRate: { ideal: 48000 },
-        channelCount: { ideal: 1 },
-      };
-
       let mediaStream: MediaStream;
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
           video: videoConstraints,
-          audio: audioConstraints,
+          audio: IS_IOS ? {
+            // iOS: AGC must stay on or volume is near-silent; stereo not supported
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: true,
+            channelCount: { ideal: 1 },
+            sampleRate: { ideal: 48000 },
+          } : {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            channelCount: { ideal: 2 },
+            sampleRate: { ideal: 48000 },
+          },
         });
       } catch {
         mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -368,6 +373,7 @@ export function useCamera(): UseCameraReturn {
     if (isReady || streamRef.current) webStartCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facingMode]);
+
 
   useEffect(() => {
     if (IS_NATIVE) return;

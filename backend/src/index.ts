@@ -61,12 +61,14 @@ app.use(generalLimiter);
 // Serve uploaded files — set explicit Content-Type for formats that
 // older versions of the mime library don't know (e.g. .avif)
 app.use('/uploads', express.static(path.resolve(config.uploadDir), {
+  maxAge: '7d',
+  immutable: true,
   setHeaders(res, filePath) {
     if (filePath.endsWith('.avif')) res.setHeader('Content-Type', 'image/avif');
     else if (filePath.endsWith('.webp')) res.setHeader('Content-Type', 'image/webp');
   },
 }));
-app.use('/exports', express.static(path.resolve(config.exportDir)));
+app.use('/exports', express.static(path.resolve(config.exportDir), { maxAge: '1h' }));
 
 // API Routes
 app.use('/v1/auth', authRoutes);

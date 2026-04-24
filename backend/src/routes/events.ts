@@ -438,6 +438,35 @@ router.get('/:eventId/stream', asyncHandler(async (req: Request, res: Response) 
   });
 }));
 
+// GET /v1/events/:eventId/moderators/search?q= - Search hosts to add as moderators
+router.get('/:eventId/moderators/search', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const q = (req.query.q as string || '').trim();
+  if (q.length < 2) return res.json({ hosts: [] });
+
+  const event = await prisma.event.findFirst({ where: { id: req.params.eventId } });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const existing = await (prisma as any).eventModerator.findMany({
+    where: { eventId: event.id },
+    select: { hostId: true },
+  });
+  const excludedIds = [event.hostId, ...existing.map((m: any) => m.hostId)];
+
+  const hosts = await prisma.host.findMany({
+    where: {
+      id: { notIn: excludedIds },
+      OR: [
+        { email: { contains: q, mode: 'insensitive' } },
+        { displayName: { contains: q, mode: 'insensitive' } },
+      ],
+    },
+    select: { id: true, email: true, displayName: true },
+    take: 8,
+  });
+
+  res.json({ hosts });
+}));
+
 // GET /v1/events/:eventId/moderators - List event moderators (owner or admin)
 router.get('/:eventId/moderators', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
   const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);

@@ -21,7 +21,7 @@ RUN npx tsc
 # ── Stage 2: Production ──────────────────────────
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl ffmpeg
 
 WORKDIR /app
 
