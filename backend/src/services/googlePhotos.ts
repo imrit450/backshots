@@ -144,18 +144,26 @@ export async function exportToGooglePhotos(
     if (!batchRes.ok) throw new Error(`batchCreate failed: ${await batchRes.text()}`);
   }
 
-  // 4. Share album → get shareable link
-  const shareRes = await fetch(
-    `https://photoslibrary.googleapis.com/v1/albums/${album.id}:share`,
-    {
-      method: 'POST',
-      headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sharedAlbumOptions: { isCollaborative: false, isCommentable: false } }),
+  // 4. Share album → get shareable link (best-effort; fall back to productUrl)
+  let shareableUrl: string | undefined = album.productUrl;
+  try {
+    const shareRes = await fetch(
+      `https://photoslibrary.googleapis.com/v1/albums/${album.id}:share`,
+      {
+        method: 'POST',
+        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sharedAlbumOptions: { isCollaborative: false, isCommentable: false } }),
+      }
+    );
+    if (shareRes.ok) {
+      const shareData = (await shareRes.json()) as { shareInfo?: { shareableUrl?: string } };
+      shareableUrl = shareData.shareInfo?.shareableUrl || shareableUrl;
+    } else {
+      console.warn('Google Photos share step failed (non-fatal):', await shareRes.text());
     }
-  );
-  if (!shareRes.ok) throw new Error(`Failed to share album: ${await shareRes.text()}`);
-  const shareData = (await shareRes.json()) as { shareInfo?: { shareableUrl?: string } };
-  const shareableUrl = shareData.shareInfo?.shareableUrl || album.productUrl;
-  if (!shareableUrl) throw new Error('No shareable URL returned from Google Photos');
+  } catch (err) {
+    console.warn('Google Photos share step threw (non-fatal):', err);
+  }
+  if (!shareableUrl) throw new Error('No album URL returned from Google Photos');
   return shareableUrl;
 }
