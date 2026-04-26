@@ -150,22 +150,36 @@ router.post('/:eventId/exports/google-photos', authenticateHost, asyncHandler(as
     throw new AppError('No approved media to export', 400);
   }
 
+  // Create a PROCESSING record immediately so the frontend can poll
+  const exportRecord = await prisma.export.create({
+    data: {
+      eventId: event.id,
+      status: 'PROCESSING',
+      photoCount: photos.length,
+      videoCount: videos.length,
+    },
+  });
+
   // Run async — respond immediately with 202
   const albumTitle = `${event.title} — Lumora`;
   exportToGooglePhotos(host.googleRefreshToken, albumTitle, photos, videos)
     .then(async (shareUrl) => {
-      // Store share URL on the export record (create a record for tracking)
-      await prisma.export.create({
+      await prisma.export.update({
+        where: { id: exportRecord.id },
         data: {
-          eventId: event.id,
           status: 'COMPLETED',
-          photoCount: photos.length,
           fileUrl: shareUrl,
           completedAt: new Date(),
         },
       });
     })
-    .catch((err) => console.error('Google Photos export failed:', err));
+    .catch(async (err) => {
+      console.error('Google Photos export failed:', err);
+      await prisma.export.update({
+        where: { id: exportRecord.id },
+        data: { status: 'FAILED' },
+      });
+    });
 
   res.status(202).json({
     message: `Uploading ${photos.length} photo(s) to Google Photos. You'll receive the album link shortly.`,

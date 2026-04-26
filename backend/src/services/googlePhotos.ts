@@ -58,7 +58,7 @@ export async function exportToGooglePhotos(
     body: JSON.stringify({ album: { title: eventTitle } }),
   });
   if (!albumRes.ok) throw new Error(`Failed to create album: ${await albumRes.text()}`);
-  const album = (await albumRes.json()) as { id: string };
+  const album = (await albumRes.json()) as { id: string; productUrl?: string };
 
   // 2. Upload photos (raw bytes → upload token)
   const uploadTokens: string[] = [];
@@ -154,6 +154,8 @@ export async function exportToGooglePhotos(
     }
   );
   if (!shareRes.ok) throw new Error(`Failed to share album: ${await shareRes.text()}`);
-  const shareData = (await shareRes.json()) as { shareInfo: { shareableUrl: string } };
-  return shareData.shareInfo.shareableUrl;
+  const shareData = (await shareRes.json()) as { shareInfo?: { shareableUrl?: string } };
+  const shareableUrl = shareData.shareInfo?.shareableUrl || album.productUrl;
+  if (!shareableUrl) throw new Error('No shareable URL returned from Google Photos');
+  return shareableUrl;
 }
