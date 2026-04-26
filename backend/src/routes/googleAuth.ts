@@ -13,10 +13,12 @@ router.get(
   '/google',
   authenticateHost,
   asyncHandler(async (req: Request, res: Response) => {
+    console.log('[googleAuth] GOOGLE_CLIENT_ID present:', !!config.googleClientId, '| GOOGLE_CLIENT_SECRET present:', !!config.googleClientSecret, '| BASE_URL:', config.baseUrl);
     if (!config.googleClientId || !config.googleClientSecret) {
       throw new AppError('Google OAuth is not configured on this server', 503);
     }
     const url = getAuthUrl(req.hostUser!.hostId);
+    console.log('[googleAuth] generated auth URL:', url);
     res.json({ url });
   })
 );

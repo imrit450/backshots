@@ -26,6 +26,7 @@ declare global {
 
 export function authenticateHost(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers.authorization;
+  console.log('[authenticateHost] path:', req.path, '| auth header present:', !!authHeader, '| starts with Bearer:', authHeader?.startsWith('Bearer ') ?? false);
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing or invalid authorization header' });
     return;
