@@ -12,12 +12,13 @@ model Host {
   email           String    @unique
   passwordHash    String    @map("password_hash")
   displayName     String    @map("display_name")
-  role            String    @default("user")
-  canCreateEvents Boolean   @default(false) @map("can_create_events")
-  plan            String    @default("free")
-  planExpiresAt   DateTime? @map("plan_expires_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  role                String    @default("user")
+  canCreateEvents     Boolean   @default(false) @map("can_create_events")
+  plan                String    @default("free")
+  planExpiresAt       DateTime? @map("plan_expires_at")
+  googleRefreshToken  String?   @map("google_refresh_token")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
   events           Event[]
   guestSessions    GuestSession[]
   moderatedEvents  EventModerator[]

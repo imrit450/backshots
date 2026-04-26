@@ -21,7 +21,7 @@ RUN npx tsc
 # ── Stage 2: Production ──────────────────────────
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache openssl ffmpeg
+RUN apk add --no-cache openssl
 
 WORKDIR /app
 
@@ -43,4 +43,4 @@ ENV PORT=3001
 
 EXPOSE 3001
 
-CMD ["sh", "-c", "npx prisma db push --skip-generate --accept-data-loss && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/index.js"]

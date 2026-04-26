@@ -330,6 +330,26 @@ class ApiClient {
     return this.request<{ exports: any[] }>(`/events/${eventId}/exports`);
   }
 
+  // Google Photos
+  async getGoogleAuthUrl() {
+    return this.request<{ url: string }>('/auth/google');
+  }
+
+  async getGoogleStatus() {
+    return this.request<{ connected: boolean }>('/auth/google/status');
+  }
+
+  async disconnectGoogle() {
+    return this.request<{ ok: boolean }>('/auth/google', { method: 'DELETE' });
+  }
+
+  async exportToGooglePhotos(eventId: string) {
+    return this.request<{ message: string; photoCount: number; videoCount: number }>(
+      `/events/${eventId}/exports/google-photos`,
+      { method: 'POST' }
+    );
+  }
+
   // Guest
   async getPublicEvent(eventCode: string) {
     return this.request<{ event: any }>(`/events/${eventCode}/public`);

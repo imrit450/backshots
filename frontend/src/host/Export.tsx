@@ -9,6 +9,11 @@ import {
   SlidersHorizontal,
   Sparkles,
   Inbox,
+  ImageIcon,
+  Link,
+  Unlink,
+  CheckCircle2,
+  ExternalLink,
 } from 'lucide-react';
 
 export default function ExportPage() {
@@ -16,6 +21,12 @@ export default function ExportPage() {
   const [exports, setExports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+
+  // Google Photos state
+  const [googleConnected, setGoogleConnected] = useState<boolean | null>(null);
+  const [googleExporting, setGoogleExporting] = useState(false);
+  const [googleResult, setGoogleResult] = useState<{ message: string } | null>(null);
+  const [googleError, setGoogleError] = useState<string | null>(null);
 
   const fetchExports = async () => {
     if (!eventId) return;
@@ -29,15 +40,38 @@ export default function ExportPage() {
     }
   };
 
+  const fetchGoogleStatus = async () => {
+    try {
+      const { connected } = await api.getGoogleStatus();
+      setGoogleConnected(connected);
+    } catch {
+      setGoogleConnected(false);
+    }
+  };
+
   useEffect(() => {
     fetchExports();
+    fetchGoogleStatus();
+
+    // Handle redirect back from Google OAuth (via GoogleCallback page)
+    const result = sessionStorage.getItem('googleOAuthResult');
+    if (result) {
+      sessionStorage.removeItem('googleOAuthResult');
+      try {
+        const { status, reason } = JSON.parse(result);
+        if (status === 'connected') {
+          setGoogleConnected(true);
+        } else if (status === 'error') {
+          setGoogleError(`Google connection failed: ${reason || 'Unknown error'}`);
+        }
+      } catch { /* ignore */ }
+    }
   }, [eventId]);
 
   // Poll while any export is processing
   useEffect(() => {
     const processing = exports.filter((e) => e.status === 'PROCESSING');
     if (processing.length === 0) return;
-
     const interval = setInterval(fetchExports, 3000);
     return () => clearInterval(interval);
   }, [exports]);
@@ -52,6 +86,40 @@ export default function ExportPage() {
       alert(err.message || 'Failed to create export');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleConnectGoogle = async () => {
+    try {
+      sessionStorage.setItem('googleOAuthReturnTo', window.location.pathname);
+      const { url } = await api.getGoogleAuthUrl();
+      window.location.href = url;
+    } catch (err: any) {
+      setGoogleError(err.message || 'Failed to start Google sign-in');
+    }
+  };
+
+  const handleDisconnectGoogle = async () => {
+    if (!confirm('Disconnect your Google account?')) return;
+    await api.disconnectGoogle();
+    setGoogleConnected(false);
+    setGoogleResult(null);
+  };
+
+  const handleGoogleExport = async () => {
+    if (!eventId) return;
+    setGoogleExporting(true);
+    setGoogleError(null);
+    setGoogleResult(null);
+    try {
+      const result = await api.exportToGooglePhotos(eventId);
+      setGoogleResult({ message: result.message });
+      // Refresh export list after a moment (the async job creates a record)
+      setTimeout(fetchExports, 5000);
+    } catch (err: any) {
+      setGoogleError(err.message || 'Google Photos export failed');
+    } finally {
+      setGoogleExporting(false);
     }
   };
 
@@ -126,6 +194,75 @@ export default function ExportPage() {
           </div>
         </div>
 
+        {/* ── Google Photos card ─────────────────────────────────────── */}
+        <div className="bg-surface-container-low rounded-xl p-6 mb-6">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-xl bg-[#4285F4]/10 flex items-center justify-center flex-shrink-0">
+              <ImageIcon className="w-5 h-5 text-[#4285F4]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="font-headline font-bold text-on-surface text-base leading-tight mb-1">
+                Export to Google Photos
+              </h3>
+              <p className="text-on-surface-variant text-sm leading-relaxed mb-4">
+                Upload all approved photos directly to a new Google Photos album and get a shareable link.
+              </p>
+
+              {googleError && (
+                <div className="mb-3 px-3 py-2 rounded-lg bg-error/10 text-error text-xs font-medium">
+                  {googleError}
+                </div>
+              )}
+
+              {googleResult && (
+                <div className="mb-3 flex items-start gap-2 px-3 py-2 rounded-lg bg-primary/10 text-primary text-xs font-medium">
+                  <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>{googleResult.message} Check your Export History below for the album link once ready.</span>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-3">
+                {googleConnected === null ? (
+                  <div className="flex items-center gap-2 text-on-surface-variant text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Checking connection…
+                  </div>
+                ) : googleConnected ? (
+                  <>
+                    <button
+                      onClick={handleGoogleExport}
+                      disabled={googleExporting}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#4285F4] text-white font-bold text-sm hover:bg-[#3367D6] disabled:opacity-50 transition-colors"
+                    >
+                      {googleExporting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ExternalLink className="w-4 h-4" />
+                      )}
+                      {googleExporting ? 'Uploading…' : 'Export to Google Photos'}
+                    </button>
+                    <button
+                      onClick={handleDisconnectGoogle}
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-surface-container-highest text-on-surface-variant font-medium text-sm hover:text-error hover:bg-error/10 transition-colors"
+                    >
+                      <Unlink className="w-4 h-4" />
+                      Disconnect
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleConnectGoogle}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-outline-variant text-on-surface font-bold text-sm hover:bg-surface-container-highest transition-colors"
+                  >
+                    <Link className="w-4 h-4" />
+                    Connect Google Account
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* ── Exports list card ─────────────────────────────────────── */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-16 gap-4">
@@ -186,19 +323,31 @@ export default function ExportPage() {
                   </p>
                 </div>
 
-                {/* Status + download */}
+                {/* Status + download/open */}
                 <div className="flex items-center gap-3 flex-shrink-0">
                   {statusBadge(exp.status)}
 
                   {exp.status === 'COMPLETED' && exp.fileUrl && (
-                    <a
-                      href={exp.fileUrl}
-                      download
-                      className="w-9 h-9 flex items-center justify-center rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                      title="Download ZIP"
-                    >
-                      <Download className="w-4 h-4" />
-                    </a>
+                    exp.fileUrl.startsWith('http') ? (
+                      <a
+                        href={exp.fileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-9 h-9 flex items-center justify-center rounded-xl bg-[#4285F4]/10 text-[#4285F4] hover:bg-[#4285F4]/20 transition-colors"
+                        title="Open Google Photos Album"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    ) : (
+                      <a
+                        href={exp.fileUrl}
+                        download
+                        className="w-9 h-9 flex items-center justify-center rounded-xl bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                        title="Download ZIP"
+                      >
+                        <Download className="w-4 h-4" />
+                      </a>
+                    )
                   )}
                 </div>
               </div>

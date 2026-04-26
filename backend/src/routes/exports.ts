@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
 import { getStorage } from '../services/storage';
+import { exportToGooglePhotos } from '../services/googlePhotos';
 
 const router = Router();
 
@@ -118,6 +119,58 @@ router.get('/:eventId/exports', authenticateHost, asyncHandler(async (req: Reque
       createdAt: e.createdAt.toISOString(),
       completedAt: e.completedAt?.toISOString() || null,
     })),
+  });
+}));
+
+// POST /v1/events/:eventId/exports/google-photos — export to a new Google Photos album
+router.post('/:eventId/exports/google-photos', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+  const event = await prisma.event.findFirst({ where });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const host = await prisma.host.findUnique({
+    where: { id: req.hostUser!.hostId },
+    select: { googleRefreshToken: true },
+  });
+
+  if (!host?.googleRefreshToken) {
+    throw new AppError('Google account not connected. Connect via Settings first.', 400);
+  }
+
+  const [photos, videos] = await Promise.all([
+    prisma.photo.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+    }),
+    prisma.video.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+    }),
+  ]);
+
+  if (photos.length === 0 && videos.length === 0) {
+    throw new AppError('No approved media to export', 400);
+  }
+
+  // Run async — respond immediately with 202
+  const albumTitle = `${event.title} — Lumora`;
+  exportToGooglePhotos(host.googleRefreshToken, albumTitle, photos, videos)
+    .then(async (shareUrl) => {
+      // Store share URL on the export record (create a record for tracking)
+      await prisma.export.create({
+        data: {
+          eventId: event.id,
+          status: 'COMPLETED',
+          photoCount: photos.length,
+          fileUrl: shareUrl,
+          completedAt: new Date(),
+        },
+      });
+    })
+    .catch((err) => console.error('Google Photos export failed:', err));
+
+  res.status(202).json({
+    message: `Uploading ${photos.length} photo(s) to Google Photos. You'll receive the album link shortly.`,
+    photoCount: photos.length,
+    videoCount: videos.length,
   });
 }));
 

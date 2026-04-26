@@ -7,6 +7,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { generalLimiter } from './middleware/rateLimit';
 
 import authRoutes from './routes/auth';
+import googleAuthRoutes from './routes/googleAuth';
 import adminRoutes from './routes/admin';
 import eventRoutes from './routes/events';
 import guestRoutes from './routes/guests';
@@ -72,6 +73,7 @@ app.use('/exports', express.static(path.resolve(config.exportDir), { maxAge: '1h
 
 // API Routes
 app.use('/v1/auth', authRoutes);
+app.use('/v1/auth', googleAuthRoutes);
 app.use('/v1/admin', adminRoutes);
 app.use('/v1/events', eventRoutes);
 app.use('/v1/events', guestRoutes);

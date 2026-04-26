@@ -56,4 +56,8 @@ export const config = {
       forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
     };
   },
+
+  /** Google OAuth — for Google Photos export */
+  get googleClientId(): string | undefined { return process.env.GOOGLE_CLIENT_ID; },
+  get googleClientSecret(): string | undefined { return process.env.GOOGLE_CLIENT_SECRET; },
 };

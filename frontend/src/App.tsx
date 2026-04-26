@@ -13,6 +13,7 @@ import EventSettings from './host/EventSettings';
 import Moderation from './host/Moderation';
 import HostGallery from './host/Gallery';
 import ExportPage from './host/Export';
+import GoogleCallback from './host/GoogleCallback';
 import Livestream from './host/Livestream';
 import Dashboard from './host/Dashboard';
 import Admin from './host/Admin';
@@ -148,6 +149,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/host/google" element={<GoogleCallback />} />
       <Route
         path="/host/events/:eventId/livestream"
         element={<Livestream />}
