@@ -64,19 +64,42 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
-    ports:
-      - "127.0.0.1:3001:3001"
+    expose:
+      - "3001"
     volumes:
       - uploads:/app/uploads
       - exports:/app/exports
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.lumora-api.rule=Host(`lumora.zilware.mu`) && (PathPrefix(`/v1`) || PathPrefix(`/uploads`) || PathPrefix(`/exports`))"
+      - traefik.http.routers.lumora-api.entrypoints=https
+      - traefik.http.routers.lumora-api.tls=true
+      - traefik.http.routers.lumora-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.lumora-api.priority=10
+      - traefik.http.services.lumora-api.loadbalancer.server.port=3001
+      - "traefik.http.routers.lumora-api-http.rule=Host(`lumora.zilware.mu`) && (PathPrefix(`/v1`) || PathPrefix(`/uploads`) || PathPrefix(`/exports`))"
+      - traefik.http.routers.lumora-api-http.entrypoints=http
+      - traefik.http.routers.lumora-api-http.middlewares=lumora-redirect
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:8080:80"
+    expose:
+      - "80"
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.lumora-web.rule=Host(`lumora.zilware.mu`)"
+      - traefik.http.routers.lumora-web.entrypoints=https
+      - traefik.http.routers.lumora-web.tls=true
+      - traefik.http.routers.lumora-web.tls.certresolver=letsencrypt
+      - traefik.http.routers.lumora-web.priority=1
+      - traefik.http.services.lumora-web.loadbalancer.server.port=80
+      - "traefik.http.routers.lumora-web-http.rule=Host(`lumora.zilware.mu`)"
+      - traefik.http.routers.lumora-web-http.entrypoints=http
+      - traefik.http.routers.lumora-web-http.middlewares=lumora-redirect
+      - traefik.http.middlewares.lumora-redirect.redirectscheme.scheme=https
 
 volumes:
   pgdata:
