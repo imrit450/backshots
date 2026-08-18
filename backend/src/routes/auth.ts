@@ -63,6 +63,12 @@ router.post('/host/signup', authLimiter, asyncHandler(async (req: Request, res: 
     },
   });
 
+  // Convert any pending moderator invites for this email to real records
+  await (prisma as any).eventModerator.updateMany({
+    where: { pendingEmail: host.email, hostId: null },
+    data: { hostId: host.id, pendingEmail: null },
+  });
+
   const token = generateHostToken(host.id, host.email);
   res.status(201).json({
     token,
@@ -187,6 +193,12 @@ router.post('/host/clerk', asyncHandler(async (req: Request, res: Response) => {
         passwordHash: unusableHash,
         displayName,
       },
+    });
+
+    // Convert any pending moderator invites for this email to real records
+    await (prisma as any).eventModerator.updateMany({
+      where: { pendingEmail: host.email, hostId: null },
+      data: { hostId: host.id, pendingEmail: null },
     });
   }
 

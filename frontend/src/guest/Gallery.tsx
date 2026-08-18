@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { Camera, ChevronLeft, Play } from 'lucide-react';
+import { Camera, ChevronLeft, Play, X } from 'lucide-react';
 import { LogoIcon } from '../components/Logo';
 
 type MediaItem =
@@ -14,6 +14,7 @@ export default function GuestGallery() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<'latest' | 'oldest'>('latest');
+  const [selectedVideo, setSelectedVideo] = useState<any | null>(null);
   const event = JSON.parse(sessionStorage.getItem('guestEvent') || '{}');
 
   useEffect(() => {
@@ -117,19 +118,24 @@ export default function GuestGallery() {
             {items.map((item) => (
               <div key={item.id} className="relative aspect-square rounded-sm overflow-hidden bg-surface-container-highest">
                 {item._type === 'video' ? (
-                  <>
+                  <div className="absolute inset-0 cursor-pointer" onClick={() => setSelectedVideo(item)}>
                     <video
                       src={item.url}
-                      className="absolute inset-0 w-full h-full object-cover"
+                      className="w-full h-full object-cover"
                       muted
                       playsInline
                       preload="metadata"
                     />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center">
+                        <Play className="w-5 h-5 fill-white text-white" />
+                      </div>
+                    </div>
                     <div className="absolute bottom-1 left-1 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-black/60 text-white text-[10px] font-bold">
                       <Play className="w-2.5 h-2.5 fill-white" />
                       {item.durationSec}s
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <img
                     src={item.thumbUrl}
@@ -143,6 +149,39 @@ export default function GuestGallery() {
           </div>
         )}
       </div>
+
+      {/* Video modal */}
+      {selectedVideo && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 flex flex-col"
+          onClick={() => setSelectedVideo(null)}
+        >
+          <div
+            className="flex-shrink-0 flex items-center justify-end px-4 py-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setSelectedVideo(null)}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div
+            className="flex-1 flex items-center justify-center min-h-0 px-4 pb-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <video
+              src={selectedVideo.url}
+              controls
+              autoPlay
+              playsInline
+              className="max-w-full max-h-full rounded-xl"
+              style={{ maxHeight: '80vh' }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Bottom fade + footer */}
       <div className="fixed bottom-0 w-full z-20 pointer-events-none pb-4 pt-8 flex justify-center bg-gradient-to-t from-surface to-transparent">

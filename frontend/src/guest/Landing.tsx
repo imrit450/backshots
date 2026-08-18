@@ -4,6 +4,7 @@ import { useUser } from '@clerk/react';
 import { api } from '../api/client';
 import { Camera, ArrowRight, Edit3 } from 'lucide-react';
 import { LogoWordmark, LogoIcon } from '../components/Logo';
+import { useDynamicManifest } from '../hooks/useDynamicManifest';
 
 // Generate and persist a unique device ID for this browser
 function getDeviceId(): string {
@@ -19,6 +20,7 @@ function getDeviceId(): string {
 export default function GuestLanding() {
   const { eventCode } = useParams<{ eventCode: string }>();
   const navigate = useNavigate();
+  useDynamicManifest(`/e/${eventCode}`);
   const { isLoaded: clerkLoaded, isSignedIn, user } = useUser();
   const [event, setEvent] = useState<any>(null);
 

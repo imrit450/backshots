@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../config';
 import { getStorage } from '../services/storage';
+import { exportToGooglePhotos } from '../services/googlePhotos';
 
 const router = Router();
 
@@ -21,43 +22,41 @@ router.post('/:eventId/exports', authenticateHost, asyncHandler(async (req: Requ
     throw new AppError('Event not found', 404);
   }
 
-  // Get approved, non-hidden photos
-  const photos = await prisma.photo.findMany({
-    where: {
-      eventId: event.id,
-      status: 'APPROVED',
-      hidden: false,
-    },
-    include: {
-      guestSession: { select: { displayName: true } },
-    },
-  });
+  const [photos, videos] = await Promise.all([
+    prisma.photo.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+    prisma.video.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+  ]);
 
-  if (photos.length === 0) {
-    throw new AppError('No photos to export', 400);
+  if (photos.length === 0 && videos.length === 0) {
+    throw new AppError('No approved media to export', 400);
   }
 
-  // Create export record
   const exportRecord = await prisma.export.create({
     data: {
       eventId: event.id,
       status: 'PROCESSING',
       photoCount: photos.length,
+      videoCount: videos.length,
     },
   });
 
-  // Generate ZIP asynchronously
   const zipFilename = `${event.eventCode}_${exportRecord.id}.zip`;
   const zipPath = path.join(config.exportDir, zipFilename);
 
-  // Start async ZIP generation
-  generateZip(zipPath, photos, exportRecord.id, event.title).catch(console.error);
+  generateZip(zipPath, photos, videos, exportRecord.id, event.title).catch(console.error);
 
   res.status(202).json({
     export: {
       id: exportRecord.id,
       status: 'PROCESSING',
       photoCount: photos.length,
+      videoCount: videos.length,
     },
   });
 }));
@@ -87,6 +86,7 @@ router.get(
         id: exportRecord.id,
         status: exportRecord.status,
         photoCount: exportRecord.photoCount,
+        videoCount: exportRecord.videoCount,
         fileUrl: exportRecord.fileUrl,
         createdAt: exportRecord.createdAt.toISOString(),
         completedAt: exportRecord.completedAt?.toISOString() || null,
@@ -114,6 +114,7 @@ router.get('/:eventId/exports', authenticateHost, asyncHandler(async (req: Reque
       id: e.id,
       status: e.status,
       photoCount: e.photoCount,
+      videoCount: e.videoCount,
       fileUrl: e.fileUrl,
       createdAt: e.createdAt.toISOString(),
       completedAt: e.completedAt?.toISOString() || null,
@@ -121,9 +122,76 @@ router.get('/:eventId/exports', authenticateHost, asyncHandler(async (req: Reque
   });
 }));
 
+// POST /v1/events/:eventId/exports/google-photos — export to a new Google Photos album
+router.post('/:eventId/exports/google-photos', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+  const event = await prisma.event.findFirst({ where });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const host = await prisma.host.findUnique({
+    where: { id: req.hostUser!.hostId },
+    select: { googleRefreshToken: true },
+  });
+
+  if (!host?.googleRefreshToken) {
+    throw new AppError('Google account not connected. Connect via Settings first.', 400);
+  }
+
+  const [photos, videos] = await Promise.all([
+    prisma.photo.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+    }),
+    prisma.video.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+    }),
+  ]);
+
+  if (photos.length === 0 && videos.length === 0) {
+    throw new AppError('No approved media to export', 400);
+  }
+
+  // Create a PROCESSING record immediately so the frontend can poll
+  const exportRecord = await prisma.export.create({
+    data: {
+      eventId: event.id,
+      status: 'PROCESSING',
+      photoCount: photos.length,
+      videoCount: videos.length,
+    },
+  });
+
+  // Run async — respond immediately with 202
+  const albumTitle = `${event.title} — Lumora`;
+  exportToGooglePhotos(host.googleRefreshToken, albumTitle, photos, videos)
+    .then(async (shareUrl) => {
+      await prisma.export.update({
+        where: { id: exportRecord.id },
+        data: {
+          status: 'COMPLETED',
+          fileUrl: shareUrl,
+          completedAt: new Date(),
+        },
+      });
+    })
+    .catch(async (err) => {
+      console.error('Google Photos export failed:', err);
+      await prisma.export.update({
+        where: { id: exportRecord.id },
+        data: { status: 'FAILED' },
+      });
+    });
+
+  res.status(202).json({
+    message: `Uploading ${photos.length} photo(s) to Google Photos. You'll receive the album link shortly.`,
+    photoCount: photos.length,
+    videoCount: videos.length,
+  });
+}));
+
 async function generateZip(
   zipPath: string,
   photos: any[],
+  videos: any[],
   exportId: string,
   eventTitle: string
 ): Promise<void> {
@@ -144,9 +212,26 @@ async function generateZip(
           const stream = await storage.getStream(photo.largeUrl);
           const ext = path.extname(photo.largeUrl) || '.avif';
           archive.append(stream, {
-            name: `${eventTitle}/${guestName}_${String(index).padStart(4, '0')}${ext}`,
+            name: `${eventTitle}/photos/${guestName}_${String(index).padStart(4, '0')}${ext}`,
           });
           index++;
+        } catch {
+          // File doesn't exist or inaccessible, skip
+        }
+      }
+    }
+
+    let videoIndex = 1;
+    for (const video of videos) {
+      const guestName = video.guestSession.displayName || 'anonymous';
+      if (video.url) {
+        try {
+          const stream = await storage.getStream(video.url);
+          const ext = path.extname(video.url) || '.mp4';
+          archive.append(stream, {
+            name: `${eventTitle}/videos/${guestName}_${String(videoIndex).padStart(4, '0')}${ext}`,
+          });
+          videoIndex++;
         } catch {
           // File doesn't exist or inaccessible, skip
         }

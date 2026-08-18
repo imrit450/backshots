@@ -12,8 +12,11 @@ RUN npm install
 # Copy frontend source
 COPY frontend/ ./
 
-# Verify binaries exist, then build
-RUN ls -la node_modules/.bin/tsc node_modules/.bin/vite && tsc && vite build
+# Vite bakes VITE_* vars into the bundle at build time — pass via --build-arg
+ARG VITE_CLERK_PUBLISHABLE_KEY
+ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
+
+RUN npm run build
 
 # ── Stage 2: Serve with nginx ────────────────────
 FROM nginx:alpine AS runner

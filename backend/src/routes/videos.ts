@@ -8,6 +8,8 @@ import { AppError } from '../middleware/errorHandler';
 import { computeRevealAt, eventWhereForHost } from '../utils/helpers';
 import { config } from '../config';
 import { getStorage } from '../services/storage';
+import { transcodeVideo } from '../services/videoProcessor';
+import { enhanceVideo } from '../services/enhancer';
 
 const router = Router();
 
@@ -97,8 +99,9 @@ router.post(
 
     const storage = getStorage();
     const videoPrefix = `hosts/${event.hostId}/events/${event.id}`;
-    const key = `${videoPrefix}/videos/${sessionId}-${Date.now()}.webm`;
-    const url = await storage.upload(req.file.buffer, key, req.file.mimetype);
+    const ts = Date.now();
+    const rawKey = `${videoPrefix}/videos/${sessionId}-${ts}.webm`;
+    const url = await storage.upload(req.file.buffer, rawKey, req.file.mimetype);
 
     const now = new Date();
     const revealAt = computeRevealAt(now, event.revealDelayHours);
@@ -118,6 +121,7 @@ router.post(
       },
     });
 
+    // Respond immediately — transcode happens in the background
     res.status(201).json({
       video: {
         id: video.id,
@@ -127,6 +131,26 @@ router.post(
         url: video.url,
         durationSec: video.durationSec,
       },
+    });
+
+    // Fire-and-forget: re-encode to MP4 with normalised audio then replace the raw file
+    const rawBuffer = req.file.buffer;
+    const rawMime   = req.file.mimetype;
+    setImmediate(async () => {
+      try {
+        const bufferToProcess = event.enhancementEnabled
+          ? await enhanceVideo(rawBuffer, rawMime).catch(() => rawBuffer)
+          : rawBuffer;
+        const mp4Buffer = await transcodeVideo(bufferToProcess, rawMime);
+        if (!mp4Buffer) return;
+        const mp4Key = `${videoPrefix}/videos/${sessionId}-${ts}.mp4`;
+        const mp4Url = await storage.upload(mp4Buffer, mp4Key, 'video/mp4');
+        await prisma.video.update({ where: { id: video.id }, data: { url: mp4Url, fileSize: mp4Buffer.length } });
+        await storage.delete(rawKey).catch(() => {});
+        console.log(`[videoProcessor] transcoded ${video.id} → ${mp4Key}`);
+      } catch (err) {
+        console.error(`[videoProcessor] background transcode failed for ${video.id}:`, err);
+      }
     });
   }),
 );

@@ -64,27 +64,23 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+    # Not published to the host — Coolify's Traefik owns 80/443/8080 on this
+    # server, and frontend's nginx already proxies /v1, /uploads, /exports
+    # here directly over the compose network (see frontend/nginx.conf).
     expose:
       - "3001"
     volumes:
       - uploads:/app/uploads
       - exports:/app/exports
-    labels:
-      - traefik.enable=true
-      - "traefik.http.routers.lumora-api.rule=Host(`lumora.zilware.mu`) && (PathPrefix(`/v1`) || PathPrefix(`/uploads`) || PathPrefix(`/exports`))"
-      - traefik.http.routers.lumora-api.entrypoints=https
-      - traefik.http.routers.lumora-api.tls=true
-      - traefik.http.routers.lumora-api.tls.certresolver=letsencrypt
-      - traefik.http.routers.lumora-api.priority=10
-      - traefik.http.services.lumora-api.loadbalancer.server.port=3001
-      - "traefik.http.routers.lumora-api-http.rule=Host(`lumora.zilware.mu`) && (PathPrefix(`/v1`) || PathPrefix(`/uploads`) || PathPrefix(`/exports`))"
-      - traefik.http.routers.lumora-api-http.entrypoints=http
-      - traefik.http.routers.lumora-api-http.middlewares=lumora-redirect
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        VITE_CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set CLERK_PUBLISHABLE_KEY in .env.production}
     restart: unless-stopped
     expose:
       - "80"

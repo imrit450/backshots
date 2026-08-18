@@ -7,6 +7,7 @@ import { uploadLimiter } from '../middleware/rateLimit';
 import { AppError } from '../middleware/errorHandler';
 import { processImage, deletePhotoFiles } from '../services/media';
 import { analyzeImage } from '../services/imageAnalysis';
+import { enhancePhoto } from '../services/enhancer';
 import { computeRevealAt, eventWhereForHost } from '../utils/helpers';
 import { config } from '../config';
 
@@ -106,9 +107,13 @@ router.post(
 
     // Process image + run quality analysis in parallel
     const photoPrefix = `hosts/${event.hostId}/events/${event.id}`;
+    const rawBuffer = req.file.buffer;
+    const inputBuffer = event.enhancementEnabled
+      ? await enhancePhoto(rawBuffer).catch(() => rawBuffer)
+      : rawBuffer;
     const [processed, analysis] = await Promise.all([
-      processImage(req.file.buffer, req.file.originalname, photoPrefix),
-      analyzeImage(req.file.buffer).catch(() => null), // never block upload on analysis failure
+      processImage(inputBuffer, req.file.originalname, photoPrefix),
+      analyzeImage(inputBuffer).catch(() => null), // never block upload on analysis failure
     ]);
 
     const now = new Date();
@@ -195,7 +200,7 @@ router.get(
   })
 );
 
-// DELETE /v1/events/:eventId/photos/:photoId - Guest deletes own PENDING photo
+// DELETE /v1/events/:eventId/photos/:photoId - Guest deletes own photo
 router.delete(
   '/:eventId/photos/:photoId',
   authenticateGuest,
@@ -214,10 +219,6 @@ router.delete(
 
     if (!photo) {
       throw new AppError('Photo not found', 404);
-    }
-
-    if (photo.status !== 'PENDING') {
-      throw new AppError('Only pending photos can be deleted', 403);
     }
 
     // Delete files from disk

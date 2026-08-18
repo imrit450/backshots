@@ -1,6 +1,8 @@
 import { encryptPassword, clearPublicKeyCache } from '../utils/crypto';
 
-const API_BASE = '/v1';
+// In native Capacitor builds VITE_API_BASE must be the absolute server URL (e.g. https://api.example.com/v1)
+// because relative paths resolve to capacitor://localhost which never reaches the backend.
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/v1';
 
 class ApiClient {
   private hostToken: string | null = null;
@@ -177,6 +179,10 @@ class ApiClient {
     return this.request<{ event: any }>(`/events/${eventId}`);
   }
 
+  async getEventGuests(eventId: string) {
+    return this.request<{ guests: any[] }>(`/events/${eventId}/guests`);
+  }
+
   async updateEvent(eventId: string, data: any) {
     return this.request<{ event: any }>(`/events/${eventId}`, {
       method: 'PATCH',
@@ -256,6 +262,16 @@ class ApiClient {
     );
   }
 
+  async bulkModerateVideos(eventId: string, videoIds: string[], action: string) {
+    return this.request<{ success: boolean; affected: number; action: string }>(
+      `/events/${eventId}/videos/bulk`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ photoIds: videoIds, action }),
+      }
+    );
+  }
+
   async moderatePhoto(eventId: string, photoId: string, data: { hidden?: boolean; status?: string }) {
     return this.request<{ photo: any }>(`/events/${eventId}/photos/${photoId}`, {
       method: 'PATCH',
@@ -267,6 +283,35 @@ class ApiClient {
     return this.request<{ video: any }>(`/events/${eventId}/videos/${videoId}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
+    });
+  }
+
+  // Public stream (no auth)
+  async getStreamData(eventId: string) {
+    return this.request<{ event: any; stats: any; qr: any; photos: any[]; videos: any[] }>(
+      `/events/${eventId}/stream`
+    );
+  }
+
+  // Event moderators
+  async searchModerators(eventId: string, q: string) {
+    return this.request<{ hosts: any[] }>(`/events/${eventId}/moderators/search?q=${encodeURIComponent(q)}`);
+  }
+
+  async getEventModerators(eventId: string) {
+    return this.request<{ moderators: any[] }>(`/events/${eventId}/moderators`);
+  }
+
+  async addEventModerator(eventId: string, email: string) {
+    return this.request<{ moderator: any }>(`/events/${eventId}/moderators`, {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async removeEventModerator(eventId: string, entryId: string) {
+    return this.request<{ success: boolean }>(`/events/${eventId}/moderators/${entryId}`, {
+      method: 'DELETE',
     });
   }
 
@@ -283,6 +328,26 @@ class ApiClient {
 
   async getExports(eventId: string) {
     return this.request<{ exports: any[] }>(`/events/${eventId}/exports`);
+  }
+
+  // Google Photos
+  async getGoogleAuthUrl() {
+    return this.request<{ url: string }>('/auth/google');
+  }
+
+  async getGoogleStatus() {
+    return this.request<{ connected: boolean }>('/auth/google/status');
+  }
+
+  async disconnectGoogle() {
+    return this.request<{ ok: boolean }>('/auth/google', { method: 'DELETE' });
+  }
+
+  async exportToGooglePhotos(eventId: string) {
+    return this.request<{ message: string; photoCount: number; videoCount: number }>(
+      `/events/${eventId}/exports/google-photos`,
+      { method: 'POST' }
+    );
   }
 
   // Guest

@@ -1,5 +1,7 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { useAuth } from './hooks/useAuth';
+import InstallPrompt from './components/InstallPrompt';
 
 // Host pages
 import Login from './host/Login';
@@ -11,6 +13,7 @@ import EventSettings from './host/EventSettings';
 import Moderation from './host/Moderation';
 import HostGallery from './host/Gallery';
 import ExportPage from './host/Export';
+import GoogleCallback from './host/GoogleCallback';
 import Livestream from './host/Livestream';
 import Dashboard from './host/Dashboard';
 import Admin from './host/Admin';
@@ -45,8 +48,39 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export default function App() {
+const PWA_LAST_EVENT_KEY = 'pwa_last_event_path';
+
+function isStandalone() {
   return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as any).standalone === true
+  );
+}
+
+export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isGuestRoute = location.pathname.startsWith('/e/');
+
+  // Persist the last guest path so PWA relaunch can return to it
+  useEffect(() => {
+    if (isGuestRoute) {
+      localStorage.setItem(PWA_LAST_EVENT_KEY, location.pathname);
+    }
+  }, [isGuestRoute, location.pathname]);
+
+  // On PWA launch (standalone mode), skip the marketing page and go straight to the event
+  useEffect(() => {
+    if (isStandalone() && location.pathname === '/') {
+      const last = localStorage.getItem(PWA_LAST_EVENT_KEY);
+      if (last) navigate(last, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <>
+    {isGuestRoute && <InstallPrompt />}
     <Routes>
       {/* Host routes */}
       <Route path="/host/login" element={<Login />} />
@@ -115,13 +149,10 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/host/google" element={<GoogleCallback />} />
       <Route
         path="/host/events/:eventId/livestream"
-        element={
-          <ProtectedRoute>
-            <Livestream />
-          </ProtectedRoute>
-        }
+        element={<Livestream />}
       />
       <Route
         path="/host/admin"
@@ -160,5 +191,6 @@ export default function App() {
       <Route path="/how-it-works" element={<HowItWorks />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }

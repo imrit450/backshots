@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../api/client';
-import { ImagePlus, X, Check, Minus, Plus } from 'lucide-react';
+import { ImagePlus, X, Check, Minus, Plus, Wand2 } from 'lucide-react';
 import { THEME_LIST } from '../config/themes';
 import { getPlan } from '../config/plans';
 
@@ -90,9 +90,18 @@ export default function CreateEvent() {
     if (iconInputRef.current) iconInputRef.current.value = '';
   };
 
-  // Derive safe defaults from the user's plan limits
-  const planMaxPhotos = effectivePlan.maxPhotosPerGuest === -1 ? 100 : effectivePlan.maxPhotosPerGuest;
-  const planMaxStorage = effectivePlan.maxStorageMb === -1 ? 500 : Math.min(500, effectivePlan.maxStorageMb);
+  // Derive stepper ceilings from the user's plan.
+  // -1 means "unlimited" on the plan; we represent it as a high UI ceiling.
+  const planMaxPhotos  = effectivePlan.maxPhotosPerGuest === -1 ? 999 : effectivePlan.maxPhotosPerGuest;
+  const planMaxStorage = effectivePlan.maxStorageMb      === -1 ? 102400 : effectivePlan.maxStorageMb;
+
+  // Human-readable plan limit shown next to each field
+  const photosLabel  = effectivePlan.maxPhotosPerGuest === -1 ? 'Unlimited' : `${planMaxPhotos} / plan`;
+  const storageLabel = effectivePlan.maxStorageMb === -1
+    ? 'Unlimited'
+    : planMaxStorage >= 1024
+      ? `${(planMaxStorage / 1024).toFixed(0)} GB / plan`
+      : `${planMaxStorage} MB / plan`;
 
   const [formInitialized, setFormInitialized] = useState(false);
   const [form, setForm] = useState({
@@ -108,6 +117,7 @@ export default function CreateEvent() {
     guestGalleryEnabled: true,
     moderationMode: 'AUTO' as 'AUTO' | 'APPROVE_FIRST',
     theme: 'classic',
+    enhancementEnabled: false,
   });
 
   // Re-sync defaults once the real host plan loads (replaces optimistic 'free' defaults)
@@ -115,8 +125,8 @@ export default function CreateEvent() {
     if (!formInitialized && host) {
       setFormInitialized(true);
       const p = getPlan(host.plan);
-      const maxPhotos = p.maxPhotosPerGuest === -1 ? 100 : p.maxPhotosPerGuest;
-      const maxStorage = p.maxStorageMb === -1 ? 500 : Math.min(500, p.maxStorageMb);
+      const maxPhotos  = p.maxPhotosPerGuest === -1 ? 999 : p.maxPhotosPerGuest;
+      const maxStorage = p.maxStorageMb      === -1 ? 102400 : p.maxStorageMb;
       setForm((prev) => ({
         ...prev,
         maxPhotosPerGuest: maxPhotos,
@@ -384,6 +394,7 @@ export default function CreateEvent() {
                   <p className="text-xs text-on-surface-variant pl-6">
                     Maximum uploads each guest can make.
                   </p>
+                  <p className="text-xs text-primary/70 pl-6 mt-0.5">{photosLabel}</p>
                 </div>
                 <StepperInput
                   value={form.maxPhotosPerGuest}
@@ -426,6 +437,7 @@ export default function CreateEvent() {
                   <p className="text-xs text-on-surface-variant pl-6">
                     Maximum disk space for this event.
                   </p>
+                  <p className="text-xs text-primary/70 pl-6 mt-0.5">{storageLabel}</p>
                 </div>
                 <StepperInput
                   value={form.maxStorageMb}
@@ -517,6 +529,34 @@ export default function CreateEvent() {
                   <span
                     className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
                       form.guestGalleryEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Enhancement toggle */}
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <Wand2 className="w-4 h-4 text-primary flex-shrink-0" />
+                    <span className="text-sm font-semibold text-on-surface">Photo &amp; Video Enhancement</span>
+                  </div>
+                  <p className="text-xs text-on-surface-variant pl-6">
+                    Automatically improve lighting, sharpness, and colour for uploads.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.enhancementEnabled}
+                  onClick={() => setForm({ ...form, enhancementEnabled: !form.enhancementEnabled })}
+                  className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
+                    form.enhancementEnabled ? 'bg-primary' : 'bg-surface-container-highest'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                      form.enhancementEnabled ? 'translate-x-5' : 'translate-x-0'
                     }`}
                   />
                 </button>

@@ -94,3 +94,9 @@ export async function deletePhotoFiles(photo: {
     await storage.delete(url!);
   }
 }
+
+export async function deleteVideoFile(video: { url: string | null }): Promise<void> {
+  if (!video.url) return;
+  const storage = getStorage();
+  await storage.delete(video.url);
+}

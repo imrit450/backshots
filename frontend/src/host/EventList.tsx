@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { useAuth } from '../hooks/useAuth';
 import { api } from '../api/client';
-import { Plus, Calendar, Users, Image, Lock } from 'lucide-react';
+import { Plus, Calendar, Users, Image, Lock, ShieldCheck } from 'lucide-react';
 import { getPlan } from '../config/plans';
 
 export default function EventList() {
@@ -98,8 +98,8 @@ export default function EventList() {
                   </div>
                 )}
 
-                {/* Status badge */}
-                <div className="absolute top-3 right-3">
+                {/* Status + role badges */}
+                <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5">
                   {event.isActive ? (
                     <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-container/20 text-tertiary border border-tertiary/20 text-xs font-semibold backdrop-blur-sm">
                       <span className="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse" />
@@ -108,6 +108,12 @@ export default function EventList() {
                   ) : (
                     <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-container-highest/80 text-on-surface-variant text-xs font-semibold backdrop-blur-sm">
                       Inactive
+                    </span>
+                  )}
+                  {event.role === 'moderator' && (
+                    <span className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-secondary/20 text-secondary border border-secondary/30 text-xs font-semibold backdrop-blur-sm">
+                      <ShieldCheck className="w-3 h-3" />
+                      Moderator
                     </span>
                   )}
                 </div>

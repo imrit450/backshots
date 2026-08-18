@@ -30,6 +30,8 @@ const createEventSchema = z.object({
   allowedFilters: z.array(z.string()).default([]),
   moderationMode: z.enum(['AUTO', 'APPROVE_FIRST']).default('AUTO'),
   theme: z.string().max(30).default('classic'),
+  livestreamEnabled: z.boolean().default(true),
+  enhancementEnabled: z.boolean().default(false),
 });
 
 const updateEventSchema = z.object({
@@ -48,6 +50,8 @@ const updateEventSchema = z.object({
   moderationMode: z.enum(['AUTO', 'APPROVE_FIRST']).optional(),
   theme: z.string().max(30).optional(),
   isActive: z.boolean().optional(),
+  livestreamEnabled: z.boolean().optional(),
+  enhancementEnabled: z.boolean().optional(),
 });
 
 // POST /v1/events - Host creates event (requires canCreateEvents or admin role)
@@ -112,28 +116,37 @@ router.post('/', authenticateHost, asyncHandler(async (req: Request, res: Respon
   res.status(201).json({ event: formatEvent(event) });
 }));
 
-// GET /v1/events - Host lists their events
+// GET /v1/events - Host lists their own events + events they moderate
 router.get('/', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
-  const events = await prisma.event.findMany({
-    where: { hostId: req.hostUser!.hostId },
-    orderBy: { createdAt: 'desc' },
-    include: {
-      _count: {
-        select: {
-          photos: true,
-          guestSessions: true,
-        },
-      },
-    },
-  });
+  const hostId = req.hostUser!.hostId;
 
-  res.json({
-    events: events.map((e) => ({
-      ...formatEvent(e),
-      photoCount: e._count.photos,
-      guestCount: e._count.guestSessions,
-    })),
-  });
+  const include = {
+    _count: { select: { photos: true, guestSessions: true } },
+  };
+
+  const [ownedEvents, moderatorEntries] = await Promise.all([
+    prisma.event.findMany({ where: { hostId }, orderBy: { createdAt: 'desc' }, include }),
+    (prisma as any).eventModerator.findMany({
+      where: { hostId },
+      include: { event: { include } },
+    }),
+  ]);
+
+  const ownedFormatted = ownedEvents.map((e: any) => ({
+    ...formatEvent(e),
+    photoCount: e._count.photos,
+    guestCount: e._count.guestSessions,
+    role: 'host',
+  }));
+
+  const moderatedFormatted = moderatorEntries.map((m: any) => ({
+    ...formatEvent(m.event),
+    photoCount: m.event._count.photos,
+    guestCount: m.event._count.guestSessions,
+    role: 'moderator',
+  }));
+
+  res.json({ events: [...ownedFormatted, ...moderatedFormatted] });
 }));
 
 // GET /v1/events/:eventId - Host gets event details (owner or admin)
@@ -325,6 +338,29 @@ router.delete(
   })
 );
 
+// GET /v1/events/:eventId/guests - List guests for an event (owner, moderator, or admin)
+router.get('/:eventId/guests', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+  const event = await prisma.event.findFirst({ where });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const sessions = await prisma.guestSession.findMany({
+    where: { eventId: event.id },
+    orderBy: { createdAt: 'asc' },
+    include: { _count: { select: { photos: true } } },
+  });
+
+  res.json({
+    guests: sessions.map((s) => ({
+      id: s.id,
+      displayName: s.displayName,
+      phoneNumber: s.phoneNumber ?? null,
+      photoCount: s._count.photos,
+      joinedAt: s.createdAt,
+    })),
+  });
+}));
+
 // GET /v1/events/:eventId/qr - Get QR code for event (owner or admin)
 router.get('/:eventId/qr', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
   const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
@@ -377,6 +413,168 @@ router.get('/:eventCode/public', asyncHandler(async (req: Request, res: Response
   });
 }));
 
+// GET /v1/events/:eventId/stream - Public livestream data (no auth required)
+router.get('/:eventId/stream', asyncHandler(async (req: Request, res: Response) => {
+  const event = await prisma.event.findFirst({
+    where: { id: req.params.eventId, isActive: true },
+  });
+
+  if (!event) throw new AppError('Event not found', 404);
+  if (!event.livestreamEnabled) throw new AppError('Livestream is disabled for this event', 403);
+
+  const [photos, videos] = await Promise.all([
+    prisma.photo.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+      orderBy: { capturedAt: 'desc' },
+      take: 30,
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+    prisma.video.findMany({
+      where: { eventId: event.id, status: 'APPROVED', hidden: false },
+      orderBy: { capturedAt: 'desc' },
+      take: 20,
+      include: { guestSession: { select: { displayName: true } } },
+    }),
+  ]);
+
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || '';
+  const origin = `${proto}://${host}`;
+  const qrDataUrl = await generateQRCodeDataUrl(event.eventCode, origin);
+  const eventUrl = getEventUrl(event.eventCode, origin);
+
+  res.json({
+    event: {
+      id: event.id,
+      title: event.title,
+      theme: event.theme,
+      iconUrl: event.iconUrl,
+    },
+    stats: {
+      totalPhotos: photos.length,
+      totalVideos: videos.length,
+    },
+    qr: { qrCode: qrDataUrl, eventUrl, eventCode: event.eventCode },
+    photos: photos.map((p) => ({
+      id: p.id,
+      capturedAt: p.capturedAt.toISOString(),
+      thumbUrl: p.thumbUrl,
+      largeUrl: p.largeUrl,
+      guestName: p.guestSession.displayName,
+    })),
+    videos: videos.map((v) => ({
+      id: v.id,
+      capturedAt: v.capturedAt.toISOString(),
+      url: v.url,
+      durationSec: v.durationSec,
+      guestName: v.guestSession.displayName,
+    })),
+  });
+}));
+
+// GET /v1/events/:eventId/moderators/search?q= - Search hosts to add as moderators
+router.get('/:eventId/moderators/search', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const q = (req.query.q as string || '').trim();
+  if (q.length < 2) return res.json({ hosts: [] });
+
+  const event = await prisma.event.findFirst({ where: { id: req.params.eventId } });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const existing = await (prisma as any).eventModerator.findMany({
+    where: { eventId: event.id },
+    select: { hostId: true },
+  });
+  const excludedIds = [event.hostId, ...existing.map((m: any) => m.hostId)];
+
+  const hosts = await prisma.host.findMany({
+    where: {
+      id: { notIn: excludedIds },
+      OR: [
+        { email: { contains: q, mode: 'insensitive' } },
+        { displayName: { contains: q, mode: 'insensitive' } },
+      ],
+    },
+    select: { id: true, email: true, displayName: true },
+    take: 8,
+  });
+
+  res.json({ hosts });
+}));
+
+// GET /v1/events/:eventId/moderators - List event moderators (owner or admin)
+router.get('/:eventId/moderators', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const where = await eventWhereForHost(prisma, req.params.eventId, req.hostUser!.hostId);
+  const event = await prisma.event.findFirst({ where });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const entries = await (prisma as any).eventModerator.findMany({
+    where: { eventId: event.id },
+    include: { host: { select: { id: true, email: true, displayName: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+
+  res.json({
+    moderators: entries.map((m: any) => ({
+      entryId: m.id,
+      id: m.host?.id ?? null,
+      email: m.host?.email ?? m.pendingEmail,
+      displayName: m.host?.displayName ?? null,
+      pending: !m.hostId,
+      addedAt: m.createdAt,
+    })),
+  });
+}));
+
+// POST /v1/events/:eventId/moderators - Add moderator by email (owner or admin only)
+router.post('/:eventId/moderators', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const { email } = z.object({ email: z.string().email() }).parse(req.body);
+
+  const event = await prisma.event.findFirst({ where: { id: req.params.eventId } });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const caller = await prisma.host.findUnique({ where: { id: req.hostUser!.hostId }, select: { role: true } });
+  if (caller?.role !== 'admin' && event.hostId !== req.hostUser!.hostId) {
+    throw new AppError('Only the event owner can manage moderators', 403);
+  }
+
+  const target = await prisma.host.findUnique({ where: { email }, select: { id: true, email: true, displayName: true } });
+
+  if (target) {
+    if (target.id === event.hostId) throw new AppError('The event owner is already a moderator', 400);
+    await (prisma as any).eventModerator.upsert({
+      where: { eventId_hostId: { eventId: event.id, hostId: target.id } },
+      create: { eventId: event.id, hostId: target.id },
+      update: {},
+    });
+    return res.status(201).json({ moderator: { id: target.id, email: target.email, displayName: target.displayName, pending: false } });
+  }
+
+  // No account yet — store as a pending invite by email
+  await (prisma as any).eventModerator.upsert({
+    where: { eventId_pendingEmail: { eventId: event.id, pendingEmail: email } },
+    create: { eventId: event.id, pendingEmail: email },
+    update: {},
+  });
+  res.status(201).json({ moderator: { id: null, email, displayName: null, pending: true } });
+}));
+
+// DELETE /v1/events/:eventId/moderators/:entryId - Remove moderator by EventModerator record id
+router.delete('/:eventId/moderators/:entryId', authenticateHost, asyncHandler(async (req: Request, res: Response) => {
+  const event = await prisma.event.findFirst({ where: { id: req.params.eventId } });
+  if (!event) throw new AppError('Event not found', 404);
+
+  const caller = await prisma.host.findUnique({ where: { id: req.hostUser!.hostId }, select: { role: true } });
+  if (caller?.role !== 'admin' && event.hostId !== req.hostUser!.hostId) {
+    throw new AppError('Only the event owner can manage moderators', 403);
+  }
+
+  await (prisma as any).eventModerator.deleteMany({
+    where: { id: req.params.entryId, eventId: event.id },
+  });
+
+  res.json({ success: true });
+}));
+
 function formatEvent(event: any) {
   return {
     id: event.id,
@@ -398,6 +596,8 @@ function formatEvent(event: any) {
     theme: event.theme,
     eventCode: event.eventCode,
     isActive: event.isActive,
+    livestreamEnabled: event.livestreamEnabled,
+    enhancementEnabled: event.enhancementEnabled ?? false,
     createdAt: event.createdAt.toISOString(),
     updatedAt: event.updatedAt.toISOString(),
   };
