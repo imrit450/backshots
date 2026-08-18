@@ -29,6 +29,9 @@ import {
 
 const IS_NATIVE = Capacitor.isNativePlatform();
 const IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+// Temporary: ?camdebug=1 surfaces capture pipeline diagnostics on-screen — see
+// the overlay below. Remove alongside it once Tier 1 camera changes are verified.
+const CAMDEBUG = new URLSearchParams(window.location.search).get('camdebug') === '1';
 
 async function saveToDevice(blob: Blob, filename: string) {
   const file = new File([blob], filename, { type: blob.type });
@@ -604,6 +607,19 @@ export default function GuestCamera() {
 
       {/* Hidden canvas (web only) */}
       {!IS_NATIVE && <canvas ref={camera.canvasRef} className="hidden" />}
+
+      {/* Temporary on-device capture diagnostics — add ?camdebug=1 to the URL.
+          Shows which still-capture pipeline actually ran and what it produced,
+          since {ideal:...} constraints and ImageCapture support are both
+          soft/device-dependent and invisible otherwise. Remove once the Tier 1
+          camera changes are verified on real Android hardware. */}
+      {!IS_NATIVE && CAMDEBUG && camera.lastCaptureInfo && (
+        <pre
+          className="absolute top-4 left-4 right-4 z-[9999] pointer-events-none text-[10px] leading-tight text-lime-300 bg-black/80 p-2 rounded overflow-auto max-h-40"
+        >
+          {JSON.stringify(camera.lastCaptureInfo, null, 2)}
+        </pre>
+      )}
 
       {/* ══════ TIMER COUNTDOWN ══════ */}
       {timerCountdown !== null && (
