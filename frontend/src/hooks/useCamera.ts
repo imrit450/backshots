@@ -12,6 +12,14 @@ interface ZoomCaps {
   step: number;
 }
 
+export interface CaptureDiagnostics {
+  path: 'imagecapture' | 'canvas-fallback';
+  width: number;
+  height: number;
+  bytes: number;
+  trackSettings: MediaTrackSettings | null;
+}
+
 export interface UseCameraReturn {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -28,6 +36,10 @@ export interface UseCameraReturn {
   startNativeVideo: () => Promise<void>;
   stopNativeVideo: () => Promise<{ blob: Blob; durationSec: number } | null>;
   stream: MediaStream | null;
+  // Diagnostics from the most recent capturePhoto() call — which pipeline was
+  // used and what came out of it. Read this on-device (?camdebug=1) to verify
+  // the ImageCapture path is actually engaging instead of silently falling back.
+  lastCaptureInfo: CaptureDiagnostics | null;
   torchSupported: boolean;
   torchOn: boolean;
   setTorch: (on: boolean) => Promise<void>;
@@ -46,6 +58,67 @@ function base64ToBlob(b64: string, mimeType: string): Blob {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mimeType });
+}
+
+// Server rejects uploads over config.maxFileSize (10MB) — leave headroom since
+// a full-sensor-resolution still (via ImageCapture) can land much bigger than
+// the old video-frame snapshot ever could.
+const MAX_PHOTO_UPLOAD_BYTES = 9 * 1024 * 1024;
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+// Re-encodes at decreasing JPEG quality until the blob fits the server's
+// upload cap. Best-effort: if even the lowest quality doesn't fit, returns
+// that anyway and lets the existing server-side error surface as before.
+async function encodeWithSizeCap(canvas: HTMLCanvasElement, maxBytes: number): Promise<Blob | null> {
+  const qualities = [0.95, 0.85, 0.75];
+  let last: Blob | null = null;
+  for (const q of qualities) {
+    const blob = await canvasToBlob(canvas, 'image/jpeg', q);
+    last = blob;
+    if (blob && blob.size <= maxBytes) return blob;
+  }
+  return last;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out')), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
+// Draws `source` (a live <video> frame or a captured ImageBitmap) onto the
+// canvas, applying the same selfie-mirror and digital-zoom center-crop that
+// the original video-frame-snapshot path applied — so swapping the pixel
+// source doesn't change what the user sees in the output.
+function drawCaptureSource(
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  source: CanvasImageSource,
+  srcWidth: number,
+  srcHeight: number,
+  facingMode: 'user' | 'environment',
+  cssZoom: number
+) {
+  canvas.width = srcWidth;
+  canvas.height = srcHeight;
+  if (facingMode === 'user') {
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
+  if (cssZoom > 1) {
+    const w = srcWidth / cssZoom;
+    const h = srcHeight / cssZoom;
+    ctx.drawImage(source, (srcWidth - w) / 2, (srcHeight - h) / 2, w, h, 0, 0, canvas.width, canvas.height);
+  } else {
+    ctx.drawImage(source, 0, 0, srcWidth, srcHeight, 0, 0, canvas.width, canvas.height);
+  }
 }
 
 async function videoFileToBlob(filePath: string): Promise<Blob> {
@@ -70,6 +143,7 @@ export function useCamera(): UseCameraReturn {
   const [zoomCaps, setZoomCaps] = useState<ZoomCaps | null>(null);
   const [currentZoom, setCurrentZoom] = useState(1);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [lastCaptureInfo, setLastCaptureInfo] = useState<CaptureDiagnostics | null>(null);
 
   // ── Web-only refs ──────────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -216,10 +290,16 @@ export function useCamera(): UseCameraReturn {
         streamRef.current = null;
       }
 
+      // NOTE: width/height ideal:1920 left as-is — it's a soft constraint (the
+      // browser picks the nearest supported mode) and this stream doubles as
+      // the MediaRecorder source for video, so raising it would also raise
+      // video encode cost and hurt recording fluidity on mid-range Android.
+      // Photo resolution is handled separately via ImageCapture in capturePhoto.
       const videoConstraints: MediaTrackConstraints = {
         facingMode,
         width:  { ideal: 1920 },
         height: { ideal: 1920 },
+        frameRate: { ideal: 30 },
       };
       let mediaStream: MediaStream;
       try {
@@ -252,6 +332,9 @@ export function useCamera(): UseCameraReturn {
 
       const videoTrack = mediaStream.getVideoTracks()[0];
       if (videoTrack) {
+        // Diagnostic: {ideal:...} is a soft constraint, so this is the only
+        // way to know what the browser actually negotiated on a given device.
+        console.log('[camera-diag] negotiated track settings', videoTrack.getSettings?.());
         try {
           const caps = videoTrack.getCapabilities?.() as any;
           setTorchSupported(!!caps?.torch);
@@ -309,21 +392,50 @@ export function useCamera(): UseCameraReturn {
     if (!videoRef.current || !canvasRef.current) return null;
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    if (facingMode === 'user') { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
-    if (cssZoom > 1) {
-      const srcW = video.videoWidth / cssZoom;
-      const srcH = video.videoHeight / cssZoom;
-      ctx.drawImage(video, (video.videoWidth - srcW) / 2, (video.videoHeight - srcH) / 2, srcW, srcH, 0, 0, canvas.width, canvas.height);
-    } else {
-      ctx.drawImage(video, 0, 0);
+
+    const track = streamRef.current?.getVideoTracks()[0];
+    let usedPath: 'imagecapture' | 'canvas-fallback' = 'canvas-fallback';
+
+    // Try the native still-capture pipeline first — it pulls a full-resolution
+    // photo straight from the sensor, independent of the (lower) resolution the
+    // video stream negotiated. Supported on Android Chrome; not on iOS Safari,
+    // where this constructor simply doesn't exist and we fall through below.
+    if (track && typeof (window as any).ImageCapture === 'function') {
+      let bitmap: ImageBitmap | null = null;
+      try {
+        const imageCapture = new (window as any).ImageCapture(track);
+        const photoBlob: Blob = await withTimeout(imageCapture.takePhoto(), 1500);
+        bitmap = await createImageBitmap(photoBlob);
+        drawCaptureSource(ctx, canvas, bitmap, bitmap.width, bitmap.height, facingMode, cssZoom);
+        usedPath = 'imagecapture';
+      } catch (err) {
+        // Some Android devices throw here, return a video-resolution frame
+        // anyway, or stall for seconds — fall back to the video snapshot below.
+        console.warn('[camera-diag] ImageCapture.takePhoto failed, using canvas fallback', err);
+      } finally {
+        bitmap?.close?.();
+      }
     }
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    const b64 = dataUrl.split(',')[1];
-    return base64ToBlob(b64, 'image/jpeg');
+
+    if (usedPath !== 'imagecapture') {
+      drawCaptureSource(ctx, canvas, video, video.videoWidth, video.videoHeight, facingMode, cssZoom);
+    }
+
+    const blob = await encodeWithSizeCap(canvas, MAX_PHOTO_UPLOAD_BYTES);
+    if (blob) {
+      const info: CaptureDiagnostics = {
+        path: usedPath,
+        width: canvas.width,
+        height: canvas.height,
+        bytes: blob.size,
+        trackSettings: track?.getSettings?.() ?? null,
+      };
+      console.log('[camera-diag] photo captured', info);
+      setLastCaptureInfo(info);
+    }
+    return blob;
   }, [facingMode]);
 
   const webSetTorch = useCallback(async (on: boolean) => {
@@ -410,6 +522,7 @@ export function useCamera(): UseCameraReturn {
       startNativeVideo: nativeStartVideo,
       stopNativeVideo: nativeStopVideo,
       stream: null,
+      lastCaptureInfo: null,
       torchSupported,
       torchOn,
       setTorch: nativeSetTorch,
@@ -434,6 +547,7 @@ export function useCamera(): UseCameraReturn {
     startNativeVideo: async () => {},
     stopNativeVideo: async () => null,
     stream,
+    lastCaptureInfo,
     torchSupported,
     torchOn,
     setTorch: webSetTorch,
